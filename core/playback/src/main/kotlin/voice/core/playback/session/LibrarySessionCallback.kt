@@ -3,6 +3,7 @@ package voice.core.playback.session
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.view.InputDevice
 import android.view.KeyEvent
 import android.widget.Toast
 import androidx.datastore.core.DataStore
@@ -294,27 +295,45 @@ class LibrarySessionCallback(
         }
         return true
       }
+      // Many earbuds translate double/triple taps into NEXT/PREVIOUS in firmware, so those
+      // keycodes route through the user's configured click actions. A real keyboard's dedicated
+      // next/previous keys must keep their literal meaning, though — otherwise customized click
+      // actions reverse them (GitHub issue #7).
       KeyEvent.KEYCODE_MEDIA_NEXT -> {
-        Logger.d("onMediaButtonEvent: NEXT")
-        scope.launch {
-          val action = doubleClickHandlerStore.data.first()
-          Logger.d("Executing NEXT action ($action)")
-          handleMediaButtonClickAction(action)
+        if (keyEvent.isFromHardwareKeyboard()) {
+          Logger.d("onMediaButtonEvent: NEXT (hardware keyboard)")
+          player.seekForward()
+        } else {
+          Logger.d("onMediaButtonEvent: NEXT")
+          scope.launch {
+            val action = doubleClickHandlerStore.data.first()
+            Logger.d("Executing NEXT action ($action)")
+            handleMediaButtonClickAction(action)
+          }
         }
         return true
       }
       KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
-        Logger.d("onMediaButtonEvent: PREVIOUS")
-        scope.launch {
-          val action = tripleClickHandlerStore.data.first()
-          Logger.d("Executing PREVIOUS action ($action)")
-          handleMediaButtonClickAction(action)
+        if (keyEvent.isFromHardwareKeyboard()) {
+          Logger.d("onMediaButtonEvent: PREVIOUS (hardware keyboard)")
+          player.seekBack()
+        } else {
+          Logger.d("onMediaButtonEvent: PREVIOUS")
+          scope.launch {
+            val action = tripleClickHandlerStore.data.first()
+            Logger.d("Executing PREVIOUS action ($action)")
+            handleMediaButtonClickAction(action)
+          }
         }
         return true
       }
     }
     return super.onMediaButtonEvent(session, controller, intent)
   }
+
+  // Headset/earbud events arrive from a virtual or non-alphabetic input device; a physical
+  // keyboard reports an alphabetic one. Null device (relayed events) counts as headset.
+  private fun KeyEvent.isFromHardwareKeyboard(): Boolean = device?.keyboardType == InputDevice.KEYBOARD_TYPE_ALPHABETIC
 
   private fun handleMediaButtonClickAction(action: MediaButtonClickAction) {
     when (action) {
