@@ -16,15 +16,15 @@ import kotlinx.coroutines.runBlocking
 import voice.core.data.BookContent
 import voice.core.data.BookId
 import voice.core.data.Chapter
-import voice.core.data.ChapterId
-import voice.core.data.ListeningSession
+import voice.core.data.ListeningEventType
 import voice.core.data.repo.BookRepository
 import voice.core.data.repo.ChapterRepo
-import voice.core.data.repo.ListeningSessionRepo
 import voice.core.data.store.AutoRewindAmountStore
 import voice.core.data.store.CurrentBookStore
 import voice.core.data.store.SeekTimeStore
 import voice.core.logging.api.Logger
+import voice.core.playback.history.ListeningEventRecorder
+import voice.core.playback.history.PlaybackIntentHolder
 import voice.core.playback.misc.Decibel
 import voice.core.playback.misc.VolumeGain
 import voice.core.playback.session.MediaId
@@ -52,14 +52,13 @@ class VoicePlayer(
   private val chapterRepo: ChapterRepo,
   private val volumeGain: VolumeGain,
   private val sleepTimer: SleepTimer,
-  private val listeningSessionRepo: ListeningSessionRepo,
+  private val intentHolder: PlaybackIntentHolder,
+  private val listeningEventRecorder: ListeningEventRecorder,
 ) : ForwardingPlayer(player) {
 
-  private var sessionStartTime: Instant? = null
-  private var sessionStartPosition: Long = 0L
-  private var sessionStartChapterId: ChapterId? = null
-
   fun forceSeekToNext() {
+    // Tag as a next-chapter (Next) seek so the recorder can label the resulting discontinuity.
+    intentHolder.pendingSeekIntent = ListeningEventType.Next
     scope.launch {
       val bookId = currentBookStoreId.data.first() ?: return@launch
       val book = repo.get(bookId) ?: return@launch
@@ -88,6 +87,8 @@ class VoicePlayer(
   }
 
   fun forceSeekToPrevious() {
+    // Tag as a previous-chapter (Previous) seek so the recorder can label the resulting discontinuity.
+    intentHolder.pendingSeekIntent = ListeningEventType.Previous
     scope.launch {
       val bookId = currentBookStoreId.data.first() ?: return@launch
       val book = repo.get(bookId) ?: return@launch
@@ -156,6 +157,8 @@ class VoicePlayer(
   }
 
   override fun seekBack() {
+    // Tag as a rewind (Back) seek so the recorder can label the resulting discontinuity.
+    intentHolder.pendingSeekIntent = ListeningEventType.Back
     sleepTimer.reset()
     scope.launch {
       val skipAmount = seekTimeStore.data.first().seconds
@@ -183,6 +186,8 @@ class VoicePlayer(
   }
 
   override fun seekForward() {
+    // Tag as a fast-forward (Forward) seek so the recorder can label the resulting discontinuity.
+    intentHolder.pendingSeekIntent = ListeningEventType.Forward
     sleepTimer.reset()
     scope.launch {
       val skipAmount = seekTimeStore.data.first().seconds
@@ -213,56 +218,24 @@ class VoicePlayer(
 
   override fun setPlayWhenReady(playWhenReady: Boolean) {
     Logger.d("setPlayWhenReady=$playWhenReady")
-
     if (playWhenReady) {
       updateLastPlayedAt()
-      sessionStartTime = Instant.now()
-      sessionStartPosition = player.currentPosition.takeUnless { it == C.TIME_UNSET } ?: 0L
-      sessionStartChapterId = currentChapterId()
     } else {
       val currentPosition = player.currentPosition.takeUnless { it == C.TIME_UNSET }?.milliseconds ?: ZERO
-      saveSessionIfActive(endPositionMs = currentPosition.inWholeMilliseconds)
-      if (currentPosition > ZERO) {
+      // Stash the true end position before any rewind seek moves it; the recorder reads this on pause.
+      intentHolder.pendingPauseEndPositionMs = currentPosition.inWholeMilliseconds
+      if (intentHolder.stoppedBySleepTimer) {
+        // The sleep-timer flow performs its own rewind right after this pause. Skip the auto-rewind
+        // (the user would be rewound twice) and suppress that upcoming seek's transport row.
+        intentHolder.suppressNextSeek = true
+      } else if (currentPosition > ZERO) {
         val autoRewindAmount = runBlocking { autoRewindAmountStore.data.first().seconds }
-        seekTo(
-          (currentPosition - autoRewindAmount)
-            .coerceAtLeast(ZERO)
-            .inWholeMilliseconds,
-        )
+        // The imminent auto-rewind seek is internal bookkeeping, not a user action — tell the recorder to ignore it.
+        intentHolder.suppressNextSeek = true
+        seekTo((currentPosition - autoRewindAmount).coerceAtLeast(ZERO).inWholeMilliseconds)
       }
     }
     super.setPlayWhenReady(playWhenReady)
-  }
-
-  private fun currentChapterId(): ChapterId? {
-    val bookId = runBlocking { currentBookStoreId.data.first() } ?: return null
-    val book = runBlocking { repo.get(bookId) } ?: return null
-    return book.chapters.getOrNull(player.currentMediaItemIndex)?.id
-  }
-
-  private fun saveSessionIfActive(endPositionMs: Long) {
-    val startTime = sessionStartTime ?: return
-    val chapterId = sessionStartChapterId ?: return
-    val endTime = Instant.now()
-    val duration = endTime.toEpochMilli() - startTime.toEpochMilli()
-    if (duration < MIN_SESSION_DURATION_MS) return
-    sessionStartTime = null
-    val currentChapId = currentChapterId()
-    scope.launch {
-      val bookId = currentBookStoreId.data.first() ?: return@launch
-      listeningSessionRepo.addSession(
-        ListeningSession(
-          bookId = bookId,
-          chapterId = chapterId,
-          startedAt = startTime,
-          endedAt = endTime,
-          durationMs = duration,
-          startPositionMs = sessionStartPosition,
-          endPositionMs = endPositionMs,
-          endChapterId = currentChapId,
-        ),
-      )
-    }
   }
 
   override fun pause() {
@@ -332,6 +305,9 @@ class VoicePlayer(
     val mediaId = mediaItem.mediaId.toMediaIdOrNull()
     if (mediaId != null) {
       if (mediaId is MediaId.Book) {
+        // Close any open session that belongs to a different book BEFORE the timeline swap, so
+        // its time is billed to the book that was actually playing (BookSwitch end reason).
+        listeningEventRecorder.onBookSwitch(mediaId.id)
         val bookWithChapters = runBlocking {
           val book = repo.get(mediaId.id) ?: return@runBlocking null
           book to mediaItemProvider.chapters(book)
@@ -364,6 +340,12 @@ class VoicePlayer(
           Logger.v("Chapter mark reached at $payload, pausing as per sleep timer")
           sleepTimer.onChapterBoundaryReached()
           if (sleepTimer.state.value == SleepTimerState.Disabled) {
+            // Direct writes are safe: this handler runs on the media3 main looper, same as the recorder.
+            // Flags first: stash where listening actually stopped BEFORE the boundary seek moves the
+            // position, and suppress that seek so it doesn't log as a user SetPosition.
+            intentHolder.stoppedBySleepTimer = true
+            intentHolder.pendingPauseEndPositionMs = player.currentPosition.takeUnless { it == C.TIME_UNSET }
+            intentHolder.suppressNextSeek = true
             player.seekTo(payload.chapterIndex, payload.positionMs)
             player.pause()
           }
@@ -421,4 +403,3 @@ class VoicePlayer(
 }
 
 private const val THRESHOLD_FOR_BACK_SEEK_MS = 2000
-private const val MIN_SESSION_DURATION_MS = 3_000L

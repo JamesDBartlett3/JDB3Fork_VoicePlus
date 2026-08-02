@@ -28,6 +28,53 @@
     <string name="hidden_books_empty">No hidden books. Books you remove from your library will appear here.</string>
     <string name="hidden_books_restore">Restore</string>
     <string name="hidden_books_restore_all">Restore All</string>
+    <string name="backup_title">Backup &amp; Restore</string>
+    <string name="backup_enabled">Backups are on</string>
+    <string name="backup_folder">Backup folder</string>
+    <string name="backup_folder_none">No folder chosen</string>
+    <string name="backup_last">Last backup</string>
+    <string name="backup_last_never">Never</string>
+    <string name="backup_choose_folder">Choose backup folder</string>
+    <string name="backup_change_folder">Change folder</string>
+    <string name="backup_clear_folder">Stop backing up</string>
+    <string name="backup_now">Back up now</string>
+    <string name="backup_saves">Saves</string>
+    <string name="backup_saves_empty">No saves in this folder yet</string>
+    <string name="backup_save_manual">Manual</string>
+    <string name="backup_save_legacy">Older backup</string>
+    <string name="backup_restore_action">Restore</string>
+    <string name="backup_delete_save">Delete save</string>
+    <plurals name="backup_restore_unmatched_title">
+        <item quantity="one">%1$d book couldn\'t be matched automatically</item>
+        <item quantity="other">%1$d books couldn\'t be matched automatically</item>
+    </plurals>
+    <string name="backup_restore_unmatched_hint">Re-grant the audiobook folder(s) and restore again, or these books may have moved or changed.</string>
+    <string name="backup_restore_refused_newer">This backup is from a newer version of the app. Update the app, then restore again. Your backup was left untouched.</string>
+    <string name="backup_busy">Working...</string>
+    <string name="backup_status_no_backup_found">No backup found in this folder</string>
+    <string name="backup_status_backup_found">Backup found. Restore or back up when you are ready.</string>
+    <string name="backup_status_backup_saved">Backup saved</string>
+    <string name="backup_status_backup_unreadable">That backup file is unreadable. Pick another save to restore.</string>
+    <string name="backup_status_backup_failed">Backup failed</string>
+    <plurals name="backup_status_restore_complete">
+        <item quantity="one">Restored %1$d book</item>
+        <item quantity="other">Restored %1$d books</item>
+    </plurals>
+    <plurals name="backup_status_restore_partial">
+        <item quantity="one">Restored %1$d book; %2$d could not be matched</item>
+        <item quantity="other">Restored %1$d books; %2$d could not be matched</item>
+    </plurals>
+    <plurals name="backup_status_restore_no_match">
+        <item quantity="one">%1$d book could not be matched</item>
+        <item quantity="other">%1$d books could not be matched</item>
+    </plurals>
+    <string name="backup_status_permission_denied">Backup folder permission was not granted</string>
+    <string name="backup_reason_opaque_provider">folder not selected</string>
+    <string name="backup_reason_single_file">single-file book not auto-restored</string>
+    <string name="backup_reason_no_path_match">folder not selected</string>
+    <string name="backup_reason_ambiguous">ambiguous match</string>
+    <string name="backup_reason_content_changed">files changed</string>
+    <string name="backup_reason_invalid">invalid backup entry</string>
     <string name="listening_stats">Listening Statistics</string>
     <string name="listening_stats_total_lifetime">Total Listening Time</string>
     <string name="listening_stats_today">Today</string>
@@ -88,6 +135,9 @@
     <string name="bookmark_edit_title">Edit bookmark</string>
     <string name="bookmark_edit_hint">Bookmark name</string>
     <string name="bookmark_added">Bookmark added</string>
+    <string name="bookmark_deleted">Bookmark deleted</string>
+    <string name="bookmark_unavailable">Bookmark unavailable</string>
+    <string name="undo">Undo</string>
     <string name="action_settings">Preferences</string>
     <plurals name="seconds">
         <item quantity="one">%d second</item>
@@ -207,7 +257,16 @@
         <item quantity="other">%d minutes</item>
     </plurals>
     <string name="playback.current_chapter">Current chapter</string>
-    <string name="listening_log_event_skip">Skipped to new place</string>
+    <string name="listening_log_event_next">Next chapter</string>
+    <string name="listening_log_event_previous">Previous chapter</string>
+    <string name="listening_log_event_seek">Jumped</string>
+    <string name="listening_log_event_auto_advance">Auto next</string>
+    <string name="listening_log_event_go_to_chapter">Went to chapter</string>
+    <string name="listening_log_resumed_after_sleep">Resumed after sleep</string>
+    <string name="listening_log_end_sleep">Sleep timer</string>
+    <string name="listening_log_end_finished">Finished</string>
+    <string name="listening_log_end_interrupted">Interrupted</string>
+    <string name="listening_log_clear_confirm_message">This deletes the listening history for this book and can\'t be undone.</string>
     <string name="listening_log_remaining">%1$dh %2$dm left</string>
     <string name="listening_log_clear_all">Clear all</string>
     <string name="pref_media_button_double_click">Media Button: Double Click</string>

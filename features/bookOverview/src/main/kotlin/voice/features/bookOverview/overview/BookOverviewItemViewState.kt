@@ -23,8 +23,18 @@ internal fun Book.toItemViewState() = BookOverviewItemViewState(
   cover = content.cover?.let(::ImmutableFile),
   id = id,
   progress = progress(),
-  remainingTime = formatTime(duration - position),
+  remainingTime = formatTime(realTimeRemainingMs()),
 )
+
+/**
+ * Wall-clock listening time left at this book's playback speed, not raw audio time —
+ * at 2x, a 2h remainder is one real hour (GitHub issue #6).
+ */
+internal fun Book.realTimeRemainingMs(): Long {
+  val remaining = (duration - position).coerceAtLeast(0)
+  val speed = content.playbackSpeed
+  return if (speed > 0f) (remaining / speed.toDouble()).toLong() else remaining
+}
 
 private fun Book.progress(): Float {
   val globalPosition = position
