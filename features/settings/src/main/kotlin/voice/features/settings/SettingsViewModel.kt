@@ -15,7 +15,9 @@ import kotlinx.coroutines.launch
 import voice.core.common.AppInfoProvider
 import voice.core.common.DispatcherProvider
 import voice.core.common.MainScope
+import voice.core.common.RetainedViewModel
 import voice.core.data.GridMode
+import voice.core.data.LockscreenSliderMode
 import voice.core.data.MediaButtonClickAction
 import voice.core.data.sleeptimer.SleepTimerPreference
 import voice.core.data.store.AutoRewindAmountStore
@@ -23,6 +25,7 @@ import voice.core.data.store.DarkThemeStore
 import voice.core.data.store.ExperimentalPlaybackPersistenceStore
 import voice.core.data.store.GridModeStore
 import voice.core.data.store.IgnoreFileTagsStore
+import voice.core.data.store.LockscreenSliderModeStore
 import voice.core.data.store.MediaButtonDoubleClickHandlerStore
 import voice.core.data.store.MediaButtonTripleClickHandlerStore
 import voice.core.data.store.SeekTimeStore
@@ -58,15 +61,16 @@ class SettingsViewModel(
   private val mediaButtonDoubleClickHandlerStore: DataStore<MediaButtonClickAction>,
   @MediaButtonTripleClickHandlerStore
   private val mediaButtonTripleClickHandlerStore: DataStore<MediaButtonClickAction>,
+  @LockscreenSliderModeStore
+  private val lockscreenSliderModeStore: DataStore<LockscreenSliderMode>,
   @ExperimentalPlaybackPersistenceStore
   private val experimentalPlaybackPersistenceStore: DataStore<Boolean>,
   @IgnoreFileTagsStore
   private val ignoreFileTagsStore: DataStore<Boolean>,
   private val mediaScanTrigger: MediaScanTrigger,
   dispatcherProvider: DispatcherProvider,
-) : SettingsListener {
-
-  private val mainScope = MainScope(dispatcherProvider)
+) : RetainedViewModel(MainScope(dispatcherProvider)),
+  SettingsListener {
   private val _viewEffects = MutableSharedFlow<SettingsViewEffect>(extraBufferCapacity = 1)
   internal val viewEffects: SharedFlow<SettingsViewEffect> = _viewEffects.asSharedFlow()
   private val dialog = mutableStateOf<SettingsViewState.Dialog?>(null)
@@ -88,6 +92,9 @@ class SettingsViewModel(
     )
     val mediaButtonTripleClickAction by remember { mediaButtonTripleClickHandlerStore.data }.collectAsState(
       initial = MediaButtonClickAction.SKIP_BACKWARD,
+    )
+    val lockscreenSliderMode by remember { lockscreenSliderModeStore.data }.collectAsState(
+      initial = LockscreenSliderMode.CHAPTER,
     )
     val experimentalPlaybackPersistenceEnabled by remember { experimentalPlaybackPersistenceStore.data }.collectAsState(
       initial = false,
@@ -114,6 +121,7 @@ class SettingsViewModel(
       showFolderPickerEntry = showFolderPickerEntry,
       mediaButtonDoubleClickAction = mediaButtonDoubleClickAction,
       mediaButtonTripleClickAction = mediaButtonTripleClickAction,
+      lockscreenSliderMode = lockscreenSliderMode,
       experimentalPlaybackPersistenceEnabled = experimentalPlaybackPersistenceEnabled,
       sleepTimerAutoResetEnabled = autoSleepTimer.autoResetEnabled,
       ignoreFileTags = ignoreFileTags,
@@ -125,13 +133,13 @@ class SettingsViewModel(
   }
 
   override fun toggleDarkTheme() {
-    mainScope.launch {
+    scope.launch {
       useDarkThemeStore.updateData { !it }
     }
   }
 
   override fun toggleGrid() {
-    mainScope.launch {
+    scope.launch {
       gridModeStore.updateData { currentMode ->
         when (currentMode) {
           GridMode.LIST -> GridMode.GRID
@@ -147,7 +155,7 @@ class SettingsViewModel(
   }
 
   override fun seekAmountChanged(seconds: Int) {
-    mainScope.launch {
+    scope.launch {
       seekTimeStore.updateData { seconds }
     }
   }
@@ -157,7 +165,7 @@ class SettingsViewModel(
   }
 
   override fun autoRewindAmountChang(seconds: Int) {
-    mainScope.launch {
+    scope.launch {
       autoRewindAmountStore.updateData { seconds }
     }
   }
@@ -179,7 +187,7 @@ class SettingsViewModel(
   }
 
   override fun setAutoSleepTimer(checked: Boolean) {
-    mainScope.launch {
+    scope.launch {
       sleepTimerPreferenceStore.updateData { currentPrefs ->
         currentPrefs.copy(autoSleepTimerEnabled = checked)
       }
@@ -187,7 +195,7 @@ class SettingsViewModel(
   }
 
   override fun setAutoSleepTimerStart(time: LocalTime) {
-    mainScope.launch {
+    scope.launch {
       sleepTimerPreferenceStore.updateData { currentPrefs ->
         currentPrefs.copy(autoSleepStartTime = time)
       }
@@ -195,7 +203,7 @@ class SettingsViewModel(
   }
 
   override fun setAutoSleepTimerEnd(time: LocalTime) {
-    mainScope.launch {
+    scope.launch {
       sleepTimerPreferenceStore.updateData { currentPrefs ->
         currentPrefs.copy(autoSleepEndTime = time)
       }
@@ -203,7 +211,7 @@ class SettingsViewModel(
   }
 
   override fun setAutoSleepTimerDuration(minutes: Int) {
-    mainScope.launch {
+    scope.launch {
       sleepTimerPreferenceStore.updateData { currentPrefs ->
         currentPrefs.copy(duration = minutes.minutes)
       }
@@ -237,19 +245,29 @@ class SettingsViewModel(
   }
 
   override fun setMediaButtonDoubleClickAction(action: MediaButtonClickAction) {
-    mainScope.launch {
+    scope.launch {
       mediaButtonDoubleClickHandlerStore.updateData { action }
     }
   }
 
   override fun setMediaButtonTripleClickAction(action: MediaButtonClickAction) {
-    mainScope.launch {
+    scope.launch {
       mediaButtonTripleClickHandlerStore.updateData { action }
     }
   }
 
+  override fun onLockscreenSliderRowClick() {
+    dialog.value = SettingsViewState.Dialog.LockscreenSliderMode
+  }
+
+  override fun setLockscreenSliderMode(mode: LockscreenSliderMode) {
+    scope.launch {
+      lockscreenSliderModeStore.updateData { mode }
+    }
+  }
+
   override fun setExperimentalPlaybackPersistence(enabled: Boolean) {
-    mainScope.launch {
+    scope.launch {
       experimentalPlaybackPersistenceStore.updateData { enabled }
     }
   }
@@ -259,7 +277,7 @@ class SettingsViewModel(
   }
 
   override fun setSleepTimerAutoReset(enabled: Boolean) {
-    mainScope.launch {
+    scope.launch {
       sleepTimerPreferenceStore.updateData { it.copy(autoResetEnabled = enabled) }
     }
   }
@@ -279,7 +297,7 @@ class SettingsViewModel(
   override fun confirmIgnoreFileTagsChange() {
     val newValue = (dialog.value as? SettingsViewState.Dialog.IgnoreFileTagsConfirm)?.newValue ?: return
     dismissDialog()
-    mainScope.launch {
+    scope.launch {
       ignoreFileTagsStore.updateData { newValue }
       // forceReParse re-derives chapter names per book during the scan; no global chapter wipe,
       // so a scan that can't read files (e.g. a dropped permission) won't blank the library.

@@ -1,5 +1,31 @@
 # VoicePlus Changelog
 
+## v1.24 — Lock-Screen Slider, System Backup & Polish
+
+### Playback
+- **Lock-screen slider modes:** choose what the lock-screen slider seeks — the current chapter (default), the whole audiobook, or disabled.
+- Your live position is preserved across durable saves, and corrected chapter names stay aligned with playback everywhere.
+
+### Backup & Restore
+- **Survives reinstall automatically:** encrypted Android system backup now restores playback progress, bookmarks, listening history and stats, character lists, chapter-name fixes, hidden books, and settings on a reinstall or new phone (Android 12+ device transfer included). Audiobook folders must be re-granted; audio files and covers are not uploaded. The folder backup from v1.23 remains the manual, portable option.
+- Covers are preserved when restoring a backup over an existing library.
+
+### Library & Scanner
+- Faster scans: unchanged files are no longer re-read, and file changes are detected even when the timestamp doesn't change.
+- Fixed high memory use when scanning m4b books with many chapters, and chapter positions stay precise on very long files.
+- Natural sorting now handles accented titles correctly (é, ö, č…).
+
+### Sleep Timer & Widget
+- End-of-chapter timer counts each chapter boundary exactly once, and a timer left over after playback stops is disarmed.
+- Widget controls no longer vanish after some updates; dark-mode icon tint restored.
+
+### UI
+- Settings redesigned into Material 3 sections.
+- Covers animate between library and player, and the library remembers your scroll position.
+- Refreshed listening statistics screen and editors.
+
+---
+
 ## v1.23.1 — Media Button Hotfix
 
 - Fixed Bluetooth headphones ignoring configured double/triple-click actions when their firmware reports taps as Previous/Next media keys.
@@ -49,8 +75,8 @@
 - **Digits and words:** Recognizes both numerals ("Chapter 5") and English number words ("Chapter Five"), from one to one hundred.
 - **Per-chapter overrides:** Rename any individual chapter by hand. Manual names take precedence over the offset.
 - **Non-destructive and persistent:** Corrections are stored separately from your files, survive library re-scans, and never modify the audio. Reset everything or clear a single override at any time.
-- **Applied everywhere:** Corrected names appear across the playback screen, bookmarks, the listening log, the home-screen widget, and Android Auto.
-- Available for books that have chapter marks.
+- **Applied everywhere:** Corrected names appear across the playback screen, bookmarks, the listening log, the home-screen widget, and Android Auto for one-file-per-chapter books.
+- Available for books with more than one chapter mark.
 
 ### Use Folder Names Instead of File Tags (Experimental)
 - Toggling this option now re-scans your library and updates existing books immediately, instead of only applying to newly added books.
@@ -135,7 +161,7 @@
 ## v1.0.0 — Foundation
 
 ### Character Lists
-- Per-book character roster with drag-to-reorder and deletion confirmation.
+- Per-book character roster with reordering and deletion confirmation.
 
 ### Listening Logs & Statistics
 - Session tracking with start time, end time, and duration logging.

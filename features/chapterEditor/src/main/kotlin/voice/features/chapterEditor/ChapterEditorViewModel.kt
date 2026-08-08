@@ -10,28 +10,31 @@ import dev.zacsweers.metro.Assisted
 import dev.zacsweers.metro.AssistedFactory
 import dev.zacsweers.metro.AssistedInject
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import voice.core.common.DispatcherProvider
 import voice.core.common.MainScope
+import voice.core.common.RetainedViewModel
 import voice.core.common.resolveChapterName
 import voice.core.data.BookId
 import voice.core.data.byMarkKey
 import voice.core.data.markForPosition
 import voice.core.data.repo.BookRepository
 import voice.core.data.repo.ChapterNameOverrideRepo
+import voice.core.playback.PlayerController
 import voice.navigation.Navigator
 
 @AssistedInject
 public class ChapterEditorViewModel(
   private val bookRepository: BookRepository,
   private val overrideRepo: ChapterNameOverrideRepo,
+  private val playerController: PlayerController,
   private val navigator: Navigator,
   dispatcherProvider: DispatcherProvider,
   @Assisted private val bookId: BookId,
-) {
-
-  private val scope = MainScope(dispatcherProvider)
+) : RetainedViewModel(MainScope(dispatcherProvider)) {
   private val localOffset = MutableStateFlow<Int?>(null)
 
   private val _editingChapter = mutableStateOf<ChapterItemState?>(null)
@@ -44,6 +47,19 @@ public class ChapterEditorViewModel(
     val book = bookRepository.flow(bookId)
       .filterNotNull()
       .collectAsState(null).value ?: return null
+
+    val liveMarkKey by remember(bookId, book.chapters) {
+      playerController.livePlaybackStateFlow(bookId)
+        .map { liveState ->
+          liveState?.let { state ->
+            book.chapters
+              .firstOrNull { it.id == state.chapterId }
+              ?.markForPosition(state.positionMs)
+              ?.let { mark -> Pair(state.chapterId.value, mark.startMs) }
+          }
+        }
+        .distinctUntilChanged()
+    }.collectAsState(null)
 
     val overrideList by overrideRepo.overridesForBook(bookId)
       .collectAsState(emptyList())
@@ -58,7 +74,9 @@ public class ChapterEditorViewModel(
 
     val overrideMap = overrideList.byMarkKey()
 
-    val currentMark = book.currentChapter.markForPosition(book.content.positionInChapter)
+    val persistedCurrentMark = book.currentChapter.markForPosition(book.content.positionInChapter)
+    val currentMarkKey = liveMarkKey
+      ?: Pair(book.currentChapter.id.value, persistedCurrentMark.startMs)
 
     var globalIndex = 0
     var currentChapterIndex = 0
@@ -66,7 +84,7 @@ public class ChapterEditorViewModel(
       chapter.chapterMarks.map { mark ->
         val key = Pair(chapter.id.value, mark.startMs)
         val override = overrideMap[key]
-        val isCurrent = mark == currentMark && chapter == book.currentChapter
+        val isCurrent = key == currentMarkKey
         val item = ChapterItemState(
           chapterId = chapter.id,
           markStartMs = mark.startMs,
@@ -91,12 +109,12 @@ public class ChapterEditorViewModel(
   }
 
   public fun onOffsetIncrement() {
-    localOffset.value = (localOffset.value ?: 0) + 1
+    localOffset.value = (localOffset.value ?: 0).let { if (it == Int.MAX_VALUE) it else it + 1 }
     persistOffset()
   }
 
   public fun onOffsetDecrement() {
-    localOffset.value = (localOffset.value ?: 0) - 1
+    localOffset.value = (localOffset.value ?: 0).let { if (it == Int.MIN_VALUE) it else it - 1 }
     persistOffset()
   }
 

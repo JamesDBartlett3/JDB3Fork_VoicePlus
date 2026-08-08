@@ -20,6 +20,7 @@ import voice.core.data.ListeningSession
 import voice.core.data.repo.BookContentRepoImpl
 import voice.core.data.repo.internals.AppDb
 import voice.core.data.repo.internals.MemoryDataStore
+import java.io.File
 import java.time.Instant
 
 @RunWith(RobolectricTestRunner::class)
@@ -158,6 +159,24 @@ class BackupRestorerTest {
   }
 
   @Test
+  fun `released db65 backup restores progress and listening statistics into room`() = runTest {
+    contentRepo.put(book("book-1", active = true))
+    val decoded = ExternalBackupBundleCodec.decode(
+      snapshotTestJson,
+      backupFixture("db65-envelope-without-chapter-file-size.json"),
+    ) as ExternalBackupBundleDecodeResult.Valid
+
+    restorer().applyDirect(decoded.snapshot) shouldBe 1
+
+    db.bookContentDao().all().single().positionInChapter shouldBe 42_000
+    db.bookmarkDao().all().single().time shouldBe 12_000
+    db.bookCharacterDao().all().single().name shouldBe "Test Character"
+    db.chapterDao().all().single().fileSize shouldBe 0
+    db.listeningSessionDao().all().single().durationMs shouldBe 60_000
+    db.listeningEventDao().all().single().positionMs shouldBe 42_000
+  }
+
+  @Test
   fun `applyDirect twice never duplicates sessions, characters or events`() = runTest {
     contentRepo.put(book("a", active = true))
     val snapshot = snapshotOf("a").copy(
@@ -216,5 +235,19 @@ class BackupRestorerTest {
     val snapshot = snapshotOf("a") // snapshot books carry lastPlayedAt = EPOCH
 
     restorer().applyDirect(snapshot) shouldBe 0
+  }
+
+  @Test
+  fun `applyDirect preserves the live cover instead of restoring a non-portable path`() = runTest {
+    val liveCover = File("/data/user/0/debug/files/covers/live.png")
+    contentRepo.put(book("a", active = true).copy(cover = liveCover))
+    val releaseCover = File("/data/user/0/release/files/covers/release.png")
+    val snapshot = snapshotOf("a").copy(
+      books = listOf(book("a", active = true).copy(cover = releaseCover).toDto()),
+    )
+
+    restorer().applyDirect(snapshot) shouldBe 1
+
+    db.bookContentDao().all().single().cover shouldBe liveCover
   }
 }

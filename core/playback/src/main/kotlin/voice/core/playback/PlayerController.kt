@@ -77,6 +77,16 @@ class PlayerController(
     }
   }
 
+  /** Used when a book leaves the library, so playback doesn't continue on a removed (possibly deleted) book. */
+  fun pauseIfCurrentBookIs(id: BookId) {
+    scope.launch {
+      val controller = awaitConnect() ?: return@launch
+      if (controller.currentBookId() == id) {
+        controller.pause()
+      }
+    }
+  }
+
   fun setPosition(
     time: Long,
     id: ChapterId,
@@ -173,10 +183,7 @@ class PlayerController(
   }
 
   fun pauseWithRewind(rewind: Duration) = executeAfterPrepare { controller ->
-    // Must precede pause() so the recorder sees the sleep flag when onIsPlayingChanged fires.
-    controller.sendCustomCommand(CustomCommand.MarkNextPauseAsSleep)
-    controller.pause()
-    controller.seekTo((controller.currentPosition - rewind.inWholeMilliseconds).coerceAtLeast(0))
+    controller.sendCustomCommand(CustomCommand.PauseWithRewind(rewind.inWholeMilliseconds))
   }
 
   fun setSpeed(speed: Float) = executeAfterPrepare { controller ->
@@ -243,6 +250,7 @@ class PlayerController(
         if (events.containsAny(
             Player.EVENT_POSITION_DISCONTINUITY,
             Player.EVENT_PLAYBACK_PARAMETERS_CHANGED,
+            Player.EVENT_MEDIA_METADATA_CHANGED,
           )
         ) {
           emitSnapshot()

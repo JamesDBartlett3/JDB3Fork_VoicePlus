@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import voice.core.common.DispatcherProvider
 import voice.core.common.MainScope
+import voice.core.common.RetainedViewModel
 import voice.core.common.resolveChapterName
 import voice.core.data.Book
 import voice.core.data.BookId
@@ -31,8 +32,6 @@ import voice.core.data.repo.ChapterNameOverrideRepo
 import voice.core.data.sleeptimer.SleepTimerPreference
 import voice.core.data.store.CurrentBookStore
 import voice.core.data.store.SleepTimerPreferenceStore
-import voice.core.featureflag.ExperimentalPlaybackPersistenceQualifier
-import voice.core.featureflag.FeatureFlag
 import voice.core.logging.api.Logger
 import voice.core.playback.CurrentBookResolver
 import voice.core.playback.PlayerController
@@ -72,13 +71,9 @@ class BookPlayViewModel(
   dispatcherProvider: DispatcherProvider,
   @SleepTimerPreferenceStore
   private val sleepTimerPreferenceStore: DataStore<SleepTimerPreference>,
-  @ExperimentalPlaybackPersistenceQualifier
-  private val experimentalPlaybackPersistenceFeatureFlag: FeatureFlag<Boolean>,
   @Assisted
   private val bookId: BookId,
-) {
-
-  private val scope = MainScope(dispatcherProvider)
+) : RetainedViewModel(MainScope(dispatcherProvider)) {
 
   private val _viewEffects = MutableSharedFlow<BookPlayViewEffect>(extraBufferCapacity = 1)
   internal val viewEffects: Flow<BookPlayViewEffect> get() = _viewEffects
@@ -99,13 +94,8 @@ class BookPlayViewModel(
       bookRepository.flow(bookId).filterNotNull()
     }.collectAsState(initial = null).value ?: return null
 
-    val experimentalPlaybackPersistence = experimentalPlaybackPersistenceFeatureFlag.get()
-    val livePlaybackState = if (experimentalPlaybackPersistence) {
-      remember(bookId) { player.livePlaybackStateFlow(bookId) }
-        .collectAsState(null).value
-    } else {
-      null
-    }
+    val livePlaybackState = remember(bookId) { player.livePlaybackStateFlow(bookId) }
+      .collectAsState(null).value
     val managerPlayState by remember {
       playStateManager.flow
     }.collectAsState()
@@ -163,7 +153,9 @@ class BookPlayViewModel(
   fun incrementSleepTime() {
     updateSleepTimeViewState {
       val customTime = it.customSleepTime
-      val newTime = customTime + 1
+      // The +/- controls auto-repeat while held; without a cap a stuck long-press sets an
+      // arbitrarily large timer (decrement already clamps at 1).
+      val newTime = (customTime + 1).coerceAtMost(MAX_SLEEP_TIME_MINUTES)
       sleepTimerPreferenceStore.updateData { preference -> preference.copy(duration = newTime.minutes) }
       SleepTimerViewState(newTime, it.chapterCount)
     }
@@ -392,7 +384,7 @@ class BookPlayViewModel(
 
   fun seekTo(position: Duration) {
     scope.launch {
-      val book = bookRepository.get(bookId) ?: return@launch
+      val book = currentBook() ?: return@launch
       val currentChapter = book.currentChapter
       val currentMark = currentChapter.markForPosition(book.content.positionInChapter)
       player.setPosition(currentMark.startMs + position.inWholeMilliseconds, currentChapter.id)
@@ -436,6 +428,9 @@ class BookPlayViewModel(
     fun create(bookId: BookId): BookPlayViewModel
   }
 }
+
+/** 12 hours — longer than any plausible sleep timer, and short enough to bound a stuck long-press. */
+private const val MAX_SLEEP_TIME_MINUTES = 12 * 60
 
 private fun SleepTimerState.toViewState(): BookPlayViewState.SleepTimerViewState = when (this) {
   SleepTimerState.Disabled -> BookPlayViewState.SleepTimerViewState.Disabled

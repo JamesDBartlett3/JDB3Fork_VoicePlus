@@ -7,9 +7,9 @@ import androidx.compose.runtime.remember
 import dev.zacsweers.metro.Assisted
 import dev.zacsweers.metro.AssistedFactory
 import dev.zacsweers.metro.AssistedInject
-import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
+import voice.core.common.RetainedViewModel
 import voice.core.data.BookCharacter
 import voice.core.data.BookId
 import voice.core.data.repo.BookCharacterRepo
@@ -21,9 +21,7 @@ class CharacterListViewModel(
   private val characterRepo: BookCharacterRepo,
   private val navigator: Navigator,
   @Assisted private val bookId: BookId,
-) {
-
-  private val scope = MainScope()
+) : RetainedViewModel() {
 
   @Composable
   fun viewState(): CharacterListViewState {
@@ -46,15 +44,13 @@ class CharacterListViewModel(
   ) {
     if (name.isBlank()) return
     scope.launch {
-      val existing = characterRepo.characters(bookId).firstOrNull() ?: emptyList()
-      val nextOrder = (existing.maxOfOrNull { it.sortOrder } ?: -1) + 1
       val now = Instant.now()
       characterRepo.upsert(
         BookCharacter(
           bookId = bookId,
           name = name.trim(),
           description = description.trim(),
-          sortOrder = nextOrder,
+          sortOrder = characterRepo.nextSortOrder(bookId),
           createdAt = now,
           updatedAt = now,
         ),
@@ -80,14 +76,18 @@ class CharacterListViewModel(
       mutable.add(targetIndex, current)
 
       val now = Instant.now()
-      mutable.forEachIndexed { index, char ->
+      // One atomic write of only the rows that actually changed: a partially-applied reorder would
+      // leave duplicate sortOrders that never self-heal, and a row-at-a-time loop would make the
+      // list visibly step through intermediate orders as Room re-emits after each write.
+      val updates = mutable.mapIndexedNotNull { index, char ->
         val updated = if (char.id == id) {
           char.copy(name = name.trim(), description = description.trim(), sortOrder = index, updatedAt = now)
         } else {
           char.copy(sortOrder = index)
         }
-        characterRepo.upsert(updated)
+        updated.takeIf { it != char }
       }
+      characterRepo.updateAll(updates)
     }
   }
 

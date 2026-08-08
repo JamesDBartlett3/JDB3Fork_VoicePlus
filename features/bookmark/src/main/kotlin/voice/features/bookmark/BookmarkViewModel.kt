@@ -13,11 +13,11 @@ import androidx.datastore.core.DataStore
 import dev.zacsweers.metro.Assisted
 import dev.zacsweers.metro.AssistedFactory
 import dev.zacsweers.metro.AssistedInject
-import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import voice.core.common.RetainedViewModel
 import voice.core.common.resolveChapterName
 import voice.core.data.BookId
 import voice.core.data.Bookmark
@@ -29,6 +29,7 @@ import voice.core.data.repo.BookRepository
 import voice.core.data.repo.BookmarkRepo
 import voice.core.data.repo.ChapterNameOverrideRepo
 import voice.core.data.store.CurrentBookStore
+import voice.core.playback.CurrentBookResolver
 import voice.core.playback.PlayerController
 import voice.core.playback.playstate.PlayStateManager
 import voice.core.strings.R
@@ -49,13 +50,12 @@ class BookmarkViewModel(
   private val chapterNameOverrideRepo: ChapterNameOverrideRepo,
   private val playStateManager: PlayStateManager,
   private val playerController: PlayerController,
+  private val currentBookResolver: CurrentBookResolver,
   private val navigator: Navigator,
   private val context: Context,
   @Assisted
   private val bookId: BookId,
-) {
-
-  private val scope = MainScope()
+) : RetainedViewModel() {
 
   private val _viewEffects = MutableSharedFlow<BookmarkViewEffect>(extraBufferCapacity = 1)
   val viewEffects: Flow<BookmarkViewEffect> get() = _viewEffects
@@ -200,7 +200,7 @@ class BookmarkViewModel(
   fun addBookmark(name: String) {
     if (name.isBlank()) return
     scope.launch {
-      val book = repo.get(bookId) ?: return@launch
+      val book = currentBookResolver.book(bookId) ?: return@launch
       val newBookmark = bookmarkRepo.addBookmarkAtBookPosition(
         book = book,
         title = name,

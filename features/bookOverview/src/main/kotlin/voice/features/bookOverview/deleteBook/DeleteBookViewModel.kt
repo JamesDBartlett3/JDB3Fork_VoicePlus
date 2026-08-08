@@ -1,6 +1,7 @@
 package voice.features.bookOverview.deleteBook
 
 import android.app.Application
+import android.widget.Toast
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.datastore.core.DataStore
@@ -8,20 +9,27 @@ import androidx.documentfile.provider.DocumentFile
 import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
-import kotlinx.coroutines.MainScope
+import dev.zacsweers.metro.binding
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import voice.core.common.RetainedViewModel
 import voice.core.data.BookId
 import voice.core.data.repo.BookContentRepo
+import voice.core.data.store.CurrentBookStore
 import voice.core.data.store.ExcludedBooksStore
 import voice.core.logging.api.Logger
+import voice.core.playback.PlayerController
 import voice.core.scanner.MediaScanTrigger
 import voice.features.bookOverview.bottomSheet.BottomSheetItem
 import voice.features.bookOverview.bottomSheet.BottomSheetItemViewModel
 import voice.features.bookOverview.di.BookOverviewScope
+import voice.core.strings.R as StringsR
 
 @SingleIn(BookOverviewScope::class)
-@ContributesIntoSet(BookOverviewScope::class)
+@ContributesIntoSet(
+  scope = BookOverviewScope::class,
+  binding = binding<BottomSheetItemViewModel>(),
+)
 @Inject
 class DeleteBookViewModel(
   private val application: Application,
@@ -29,9 +37,11 @@ class DeleteBookViewModel(
   private val contentRepo: BookContentRepo,
   @ExcludedBooksStore
   private val excludedBooksStore: DataStore<Set<String>>,
-) : BottomSheetItemViewModel {
-
-  private val scope = MainScope()
+  private val playerController: PlayerController,
+  @CurrentBookStore
+  private val currentBookStoreId: DataStore<BookId?>,
+) : RetainedViewModel(),
+  BottomSheetItemViewModel {
 
   private val _state = mutableStateOf<DeleteBookViewState?>(null)
   internal val state: State<DeleteBookViewState?> get() = _state
@@ -54,7 +64,7 @@ class DeleteBookViewModel(
           val result = segments.lastOrNull()?.removePrefix("primary:")
           if (result.isNullOrEmpty()) {
             Logger.w("Could not determine path for $segments")
-            segments.joinToString(separator = "\"")
+            segments.joinToString(separator = "/")
           } else {
             result
           }
@@ -82,12 +92,31 @@ class DeleteBookViewModel(
         contentRepo.put(content.copy(isActive = false))
       }
 
+      // A removed book must not keep playing, and must not come back on the next media-button press
+      // or Android Auto browse — both resolve the current book without checking whether it's hidden.
+      playerController.pauseIfCurrentBookIs(state.id)
+      currentBookStoreId.updateData { current -> current.takeUnless { it == state.id } }
+
       if (state.alsoDeleteFiles) {
-        val uri = state.id.toUri()
-        DocumentFile.fromSingleUri(application, uri)?.delete()
+        deleteFiles(state.id)
       }
 
       mediaScanTrigger.scan(restartIfScanning = true)
+    }
+  }
+
+  /**
+   * DocumentFile.delete() reports failure by returning false — a revoked SAF grant or a provider
+   * without delete support otherwise leaves the user believing gigabytes were freed while the files
+   * are still on disk, with the book now hidden so nothing ever surfaces them again.
+   */
+  private fun deleteFiles(id: BookId) {
+    val deleted = runCatching { DocumentFile.fromSingleUri(application, id.toUri())?.delete() }
+      .onFailure { Logger.w(it, "Could not delete files for $id") }
+      .getOrNull() == true
+    if (!deleted) {
+      Logger.w("Deleting the files for $id failed; the book was removed from the library only")
+      Toast.makeText(application, StringsR.string.remove_book_delete_failed, Toast.LENGTH_LONG).show()
     }
   }
 }

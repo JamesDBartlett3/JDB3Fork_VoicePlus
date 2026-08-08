@@ -19,14 +19,16 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import voice.app.features.widget.BaseWidgetProvider
 import voice.core.common.resolveChapterName
 import voice.core.data.Book
 import voice.core.data.BookId
-import voice.core.data.repo.BookRepository
 import voice.core.data.repo.ChapterNameOverrideRepo
 import voice.core.data.store.CurrentBookStore
 import voice.core.data.store.SeekTimeStore
+import voice.core.playback.CurrentBookResolver
 import voice.core.playback.notification.MainActivityIntentProvider
 import voice.core.playback.playstate.PlayStateManager
 import voice.core.playback.receiver.WidgetButtonReceiver
@@ -39,7 +41,7 @@ import voice.core.ui.R as UiR
 @Inject
 class WidgetUpdater(
   private val context: Context,
-  private val repo: BookRepository,
+  private val currentBookResolver: CurrentBookResolver,
   private val chapterNameOverrideRepo: ChapterNameOverrideRepo,
   @CurrentBookStore
   private val currentBookStore: DataStore<BookId?>,
@@ -53,9 +55,23 @@ class WidgetUpdater(
   private val appWidgetManager = AppWidgetManager.getInstance(context)
   private val scope = CoroutineScope(Dispatchers.IO)
 
+  // Serializes refreshes. Without it, concurrent updates each read the play state at their own
+  // moment and write to the widget in whatever order they finish: a slow refresh started while
+  // paused can land after a fast one started while playing, leaving a play icon on a playing book.
+  private val updateMutex = Mutex()
+
+  /** Fire-and-forget refresh for callers that can't suspend (the widget provider, the config screen). */
   fun update() {
-    scope.launch {
-      val book = currentBookStore.data.first()?.let { repo.get(it) }
+    scope.launch { updateNow() }
+  }
+
+  /**
+   * Suspends until the widget has been redrawn. Callers driven by a flow should use this rather than
+   * [update] so that conflation upstream actually collapses a burst of changes into one refresh.
+   */
+  suspend fun updateNow() {
+    updateMutex.withLock {
+      val book = currentBookStore.data.first()?.let { currentBookResolver.book(it) }
       val seekSeconds = seekTimeStore.data.first()
       val chapterName = book?.let { resolveCurrentChapterName(it) }
       val ids = appWidgetManager.getAppWidgetIds(ComponentName(context, BaseWidgetProvider::class.java))
@@ -126,6 +142,11 @@ class WidgetUpdater(
     remoteViews.setImageViewResource(R.id.imageView, UiR.drawable.album_art)
     remoteViews.setTextViewText(R.id.title, "")
     remoteViews.setViewVisibility(R.id.summary, View.GONE)
+    // No book, so nothing wires these up: leaving them visible offers three controls that do
+    // nothing (and that TalkBack still announces as "Skip back"/"Skip forward").
+    remoteViews.setViewVisibility(R.id.rewindContainer, View.GONE)
+    remoteViews.setViewVisibility(R.id.playPause, View.GONE)
+    remoteViews.setViewVisibility(R.id.fastForwardContainer, View.GONE)
     remoteViews.setOnClickPendingIntent(R.id.wholeWidget, mainActivityIntentProvider.toCurrentBook())
     applyConfiguration(remoteViews, alpha, scale, seekSeconds)
     appWidgetManager.updateAppWidget(widgetId, remoteViews)
@@ -143,6 +164,14 @@ class WidgetUpdater(
     scale: Float,
     seekSeconds: Int,
   ) {
+    // Visibility has to be restored on every render, not merely hidden on the absent-book path: the
+    // host reuses the inflated view and applies only the actions this RemoteViews carries, so a GONE
+    // set earlier persists and leaves a playing book with no controls. setHorizontalVisibility also
+    // restores the two skip containers, but it is skipped when the widget's size is unknown, so all
+    // three are restored here where a present book always passes.
+    remoteViews.setViewVisibility(R.id.playPause, View.VISIBLE)
+    remoteViews.setViewVisibility(R.id.rewindContainer, View.VISIBLE)
+    remoteViews.setViewVisibility(R.id.fastForwardContainer, View.VISIBLE)
     remoteViews.setOnClickPendingIntent(R.id.playPause, WidgetButtonReceiver.pendingIntent(context, WidgetButtonReceiver.Action.PlayPause))
     remoteViews.setOnClickPendingIntent(
       R.id.fastForward,
@@ -192,10 +221,11 @@ class WidgetUpdater(
     remoteViews.setContentDescription(R.id.fastForward, context.getString(StringsR.string.widget_skip_forward, seekSeconds))
     remoteViews.setContentDescription(R.id.rewind, context.getString(StringsR.string.widget_skip_back, seekSeconds))
     remoteViews.setInt(R.id.widgetBackground, "setImageAlpha", alpha)
-    val iconTint = context.getColor(R.color.widget_icon_tint)
-    remoteViews.setInt(R.id.playPause, "setColorFilter", iconTint)
-    remoteViews.setInt(R.id.rewind, "setColorFilter", iconTint)
-    remoteViews.setInt(R.id.fastForward, "setColorFilter", iconTint)
+    // The icon tint lives in the layouts (android:tint), not here: a colour resolved in this process
+    // gets baked into the RemoteViews, so switching the system theme left the icons on their old
+    // tint — near-black on a dark background — until the next playback event redrew them. Declaring
+    // it in XML lets the host re-resolve it on every re-inflation, and also covers the picker
+    // preview and the config screen's live preview, which never run this code.
     remoteViews.setTextViewTextSize(R.id.title, TypedValue.COMPLEX_UNIT_SP, 14f * scale)
     remoteViews.setTextViewTextSize(R.id.summary, TypedValue.COMPLEX_UNIT_SP, 12f * scale)
     remoteViews.setTextViewTextSize(R.id.rewindText, TypedValue.COMPLEX_UNIT_SP, 11f * scale)

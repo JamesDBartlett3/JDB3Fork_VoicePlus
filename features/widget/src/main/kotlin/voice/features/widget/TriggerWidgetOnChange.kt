@@ -21,6 +21,7 @@ import voice.core.data.repo.ChapterNameOverrideRepo
 import voice.core.data.store.CurrentBookStore
 import voice.core.data.store.SeekTimeStore
 import voice.core.initializer.AppInitializer
+import voice.core.playback.ChapterMarkChangeNotifier
 import voice.core.playback.playstate.PlayStateManager
 
 @ContributesIntoSet(AppScope::class)
@@ -31,6 +32,7 @@ class TriggerWidgetOnChange(
   private val seekTimeStore: DataStore<Int>,
   private val repo: BookRepository,
   private val chapterNameOverrideRepo: ChapterNameOverrideRepo,
+  private val chapterMarkChangeNotifier: ChapterMarkChangeNotifier,
   private val playStateManager: PlayStateManager,
   private val widgetUpdater: WidgetUpdater,
   private val scope: CoroutineScope,
@@ -40,9 +42,11 @@ class TriggerWidgetOnChange(
     anythingChanged()
       // A single book switch makes several of the merged sources emit at once; conflate so the
       // burst collapses into one widget refresh instead of redundant Room reads + cover decodes.
+      // This only works because updateNow() suspends until the redraw is done — a fire-and-forget
+      // launch would return immediately and conflate would have nothing to collapse.
       .conflate()
       .onEach {
-        widgetUpdater.update()
+        widgetUpdater.updateNow()
       }
       .launchIn(scope)
   }
@@ -53,6 +57,7 @@ class TriggerWidgetOnChange(
       playStateChanged(),
       bookIdChanged(),
       overridesChanged(),
+      chapterMarkChangeNotifier.flow,
       seekTimeStore.data.distinctUntilChanged().map { },
     )
   }
@@ -78,15 +83,25 @@ class TriggerWidgetOnChange(
         repo.flow(id)
       }
       .filterNotNull()
-      .distinctUntilChanged { previous, current ->
-        previous.id == current.id &&
-          previous.content.chapters == current.content.chapters &&
-          previous.content.currentChapter == current.content.currentChapter &&
-          previous.content.chapterNameOffset == current.content.chapterNameOffset &&
-          // Compare the mark's startMs too: two marks in the same chapter can share a raw name but
-          // resolve to different overrides, so a same-named mark crossing must still refresh.
-          previous.currentMark.startMs == current.currentMark.startMs &&
-          (previous.currentMark.name ?: "") == (current.currentMark.name ?: "")
-      }
+      .distinctUntilChanged(::widgetRelevantFieldsEqual)
   }
+}
+
+/**
+ * True when nothing the widget displays has changed. The book flow re-emits on every position save
+ * — roughly once per second during playback — so without this the widget would do a Room read, two
+ * DataStore reads and a cover decode every second.
+ */
+internal fun widgetRelevantFieldsEqual(
+  previous: Book,
+  current: Book,
+): Boolean {
+  return previous.id == current.id &&
+    previous.content.chapters == current.content.chapters &&
+    previous.content.currentChapter == current.content.currentChapter &&
+    previous.content.chapterNameOffset == current.content.chapterNameOffset &&
+    // Compare the mark's startMs too: two marks in the same chapter can share a raw name but
+    // resolve to different overrides, so a same-named mark crossing must still refresh.
+    previous.currentMark.startMs == current.currentMark.startMs &&
+    (previous.currentMark.name ?: "") == (current.currentMark.name ?: "")
 }
