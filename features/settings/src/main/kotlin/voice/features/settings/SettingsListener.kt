@@ -25,6 +25,8 @@ interface SettingsListener {
   fun openHiddenBooks()
   fun openBackup()
   fun openLicenses()
+  fun suggestIdea()
+  fun reportProblem()
 
   fun onMediaButtonDoubleClickRowClick()
   fun onMediaButtonTripleClickRowClick()
@@ -65,6 +67,8 @@ interface SettingsListener {
       override fun openHiddenBooks() {}
       override fun openBackup() {}
       override fun openLicenses() {}
+      override fun suggestIdea() {}
+      override fun reportProblem() {}
 
       override fun onMediaButtonDoubleClickRowClick() {}
       override fun onMediaButtonTripleClickRowClick() {}

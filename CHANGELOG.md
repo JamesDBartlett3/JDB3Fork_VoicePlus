@@ -1,5 +1,14 @@
 # VoicePlus Changelog
 
+## v1.25 — Ideas & Bug Reports
+
+### Help & Feedback
+- New prominent **Help & feedback** section in Settings makes it easy to suggest an idea or report a problem.
+- Idea suggestions open a structured GitHub Discussion where the community can discuss and vote on improvements.
+- Bug reports open a guided GitHub form with the VoicePlus version, Android version, and device model pre-filled.
+
+---
+
 ## v1.24 — Lock-Screen Slider, System Backup & Polish
 
 ### Playback

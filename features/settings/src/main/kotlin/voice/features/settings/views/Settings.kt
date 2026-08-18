@@ -14,12 +14,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ViewList
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Book
+import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Gavel
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -137,6 +139,29 @@ private fun Settings(
               containerColor = MaterialTheme.colorScheme.secondaryContainer,
               contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
               onClick = listener::openBackup,
+            )
+          }
+        }
+      }
+
+      item(key = "help_feedback") {
+        SettingsSection(stringResource(StringsR.string.settings_section_help_feedback)) {
+          Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            PrioritySettingsItem(
+              title = stringResource(StringsR.string.pref_suggest_idea),
+              supportingText = stringResource(StringsR.string.settings_suggest_idea_summary),
+              icon = Icons.Outlined.Lightbulb,
+              containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+              contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+              onClick = listener::suggestIdea,
+            )
+            PrioritySettingsItem(
+              title = stringResource(StringsR.string.pref_report_issue),
+              supportingText = stringResource(StringsR.string.settings_report_issue_summary),
+              icon = Icons.Outlined.BugReport,
+              containerColor = MaterialTheme.colorScheme.errorContainer,
+              contentColor = MaterialTheme.colorScheme.onErrorContainer,
+              onClick = listener::reportProblem,
             )
           }
         }

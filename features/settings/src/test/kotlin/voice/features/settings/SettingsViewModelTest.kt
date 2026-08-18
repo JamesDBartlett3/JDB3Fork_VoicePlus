@@ -10,6 +10,7 @@ import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.updateAndGet
@@ -25,6 +26,7 @@ import voice.core.data.sleeptimer.SleepTimerPreference
 import voice.core.featureflag.MemoryFeatureFlag
 import voice.core.scanner.MediaScanTrigger
 import voice.core.ui.GridCount
+import voice.navigation.Destination
 import voice.navigation.Navigator
 
 class SettingsViewModelTest {
@@ -94,6 +96,36 @@ class SettingsViewModelTest {
       viewModel.setLockscreenSliderMode(LockscreenSliderMode.AUDIOBOOK)
 
       awaitItem().lockscreenSliderMode shouldBe LockscreenSliderMode.AUDIOBOOK
+    }
+  }
+
+  @Test
+  fun `suggest idea opens the ideas discussion form`() {
+    viewModel.suggestIdea()
+
+    verify {
+      navigator.goTo(
+        Destination.Website(
+          "https://github.com/mistermo-vibecode/VoicePlus/discussions/categories/ideas",
+        ),
+      )
+    }
+  }
+
+  @Test
+  fun `report problem opens the bug form with app version`() {
+    viewModel.reportProblem()
+
+    verify {
+      navigator.goTo(
+        match<Destination.Website> {
+          it.url.startsWith("https://github.com/mistermo-vibecode/VoicePlus/issues/new?") &&
+            it.url.contains("template=bug.yml") &&
+            it.url.contains("version=1.2.3") &&
+            it.url.contains("androidversion=") &&
+            it.url.contains("device=")
+        },
+      )
     }
   }
 }

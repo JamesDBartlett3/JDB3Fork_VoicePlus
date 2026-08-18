@@ -191,9 +191,12 @@
     <string name="settings_section_books">Books &amp; folders</string>
     <string name="settings_section_appearance">Appearance</string>
     <string name="settings_section_advanced">Advanced</string>
+    <string name="settings_section_help_feedback">Help &amp; feedback</string>
     <string name="settings_section_about">About</string>
     <string name="settings_listening_stats_summary">Activity, streaks and library progress</string>
     <string name="settings_backup_summary">Protect your progress and listening history</string>
+    <string name="settings_suggest_idea_summary">Share a feature or improvement with the community</string>
+    <string name="settings_report_issue_summary">Tell us what went wrong — app and device details are pre-filled</string>
     <plurals name="seconds">
         <item quantity="one">%d second</item>
         <item quantity="other">%d seconds</item>

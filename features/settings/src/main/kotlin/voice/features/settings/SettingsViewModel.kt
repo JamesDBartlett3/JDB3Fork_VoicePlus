@@ -1,5 +1,6 @@
 package voice.features.settings
 
+import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -37,6 +38,8 @@ import voice.core.ui.DARK_THEME_SETTABLE
 import voice.core.ui.GridCount
 import voice.navigation.Destination
 import voice.navigation.Navigator
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.time.LocalTime
 import kotlin.time.Duration.Companion.minutes
 
@@ -236,6 +239,23 @@ class SettingsViewModel(
     navigator.goTo(Destination.OpenSourceLicenses)
   }
 
+  override fun suggestIdea() {
+    navigator.goTo(Destination.Website(IDEAS_URL))
+  }
+
+  override fun reportProblem() {
+    val query = listOf(
+      "template" to "bug.yml",
+      "version" to appInfoProvider.versionName,
+      "androidversion" to "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+      "device" to "${Build.MANUFACTURER} ${Build.MODEL}",
+    ).joinToString("&") { (name, value) ->
+      "${name.urlEncoded()}=${value.urlEncoded()}"
+    }
+    val url = "$BUG_REPORT_URL?$query"
+    navigator.goTo(Destination.Website(url))
+  }
+
   override fun onMediaButtonDoubleClickRowClick() {
     dialog.value = SettingsViewState.Dialog.MediaButtonDoubleClickAction
   }
@@ -305,3 +325,8 @@ class SettingsViewModel(
     }
   }
 }
+
+private fun String.urlEncoded(): String = URLEncoder.encode(this, StandardCharsets.UTF_8)
+
+private const val IDEAS_URL = "https://github.com/mistermo-vibecode/VoicePlus/discussions/categories/ideas"
+private const val BUG_REPORT_URL = "https://github.com/mistermo-vibecode/VoicePlus/issues/new"

@@ -1,45 +1,68 @@
-name: Bug Report
-description: File a bug report
-labels: [ "bug" ]
+name: Report a bug
+description: Tell us when VoicePlus is not working as expected
+title: "[Bug] "
+labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to fill out this bug report!
-  - type: textarea
+        Thanks for helping improve VoicePlus. For feature ideas and improvements, please use the Ideas discussion instead.
+  - type: checkboxes
+    id: existing-issue
     attributes:
-      label: Overview
-      description: Please describe exactly what the bug is and what you expected to happen instead.
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and did not find this problem.
+          required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected VoicePlus to do instead.
+      placeholder: Tell us what went wrong and what you expected to happen.
     validations:
       required: true
   - type: textarea
+    id: reproduction-steps
     attributes:
-      label: How to reproduce
+      label: How can we reproduce it?
       description: |
-        Describe step by step, how to reproduce the bug. For example:
-        1. Open the App
-        2. Click on Play
-        3. VoicePlus crashes
+        List the steps that make the problem happen. For example:
+        1. Open VoicePlus
+        2. Tap Play
+        3. The app closes
+      placeholder: |
+        1.
+        2.
+        3.
     validations:
       required: true
   - type: input
     id: version
     attributes:
-      label: Version
-      description: On which version of VoicePlus did this bug appear? Please write the exact version as often time multiple versions are live at the same time.
+      label: VoicePlus version
+      description: This is pre-filled when you open the form from VoicePlus Settings.
+      placeholder: e.g. 1.25
     validations:
       required: true
   - type: input
     id: androidversion
     attributes:
-      label: Android Version
-      description: What is your Android Version? (i.e. Android 13)
+      label: Android version
+      description: This is pre-filled when you open the form from VoicePlus Settings.
+      placeholder: e.g. Android 16 (API 36)
     validations:
       required: true
   - type: input
     id: device
     attributes:
-      label: Device Model
-      description: What device do you use (i.e. Pixel 6)
+      label: Device model
+      description: This is pre-filled when you open the form from VoicePlus Settings.
+      placeholder: e.g. Google Pixel 9
     validations:
       required: true
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Anything else?
+      description: Add screenshots, recordings, or other details that may help. Please remove personal information first.
