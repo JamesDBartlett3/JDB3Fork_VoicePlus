@@ -13,26 +13,36 @@ import com.google.common.util.concurrent.ListenableFuture
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import voice.core.data.LockscreenSecondaryTextMode
 import voice.core.data.LockscreenSliderMode
 import voice.core.data.durationMs
+import voice.core.data.store.LockscreenSecondaryTextModeStore
 import voice.core.data.store.LockscreenSliderModeStore
 import voice.core.playback.ChapterMarkChangeNotifier
 import voice.core.playback.player.VoicePlayer
 
 @Inject
-class LockscreenSliderPlayer(
+class LockscreenPlayer(
   private val voicePlayer: VoicePlayer,
   @LockscreenSliderModeStore modeStore: DataStore<LockscreenSliderMode>,
+  @LockscreenSecondaryTextModeStore secondaryTextModeStore: DataStore<LockscreenSecondaryTextMode>,
   chapterMarkChangeNotifier: ChapterMarkChangeNotifier,
   scope: CoroutineScope,
 ) : ForwardingSimpleBasePlayer(voicePlayer) {
 
   private var mode = LockscreenSliderMode.CHAPTER
+  private var secondaryTextMode = LockscreenSecondaryTextMode.CHAPTER
 
   init {
     scope.launch {
       modeStore.data.collect {
         mode = it
+        invalidateState()
+      }
+    }
+    scope.launch {
+      secondaryTextModeStore.data.collect {
+        secondaryTextMode = it
         invalidateState()
       }
     }
@@ -45,11 +55,12 @@ class LockscreenSliderPlayer(
 
   override fun getState(): State {
     val state = super.getState()
-    return when (mode) {
+    val sliderState = when (mode) {
       LockscreenSliderMode.AUDIOBOOK -> state.forWholeAudiobook()
       LockscreenSliderMode.CHAPTER -> state.forCurrentChapter()
       LockscreenSliderMode.DISABLED -> state.withSeekingDisabled()
     }
+    return sliderState.withSecondaryText()
   }
 
   override fun handleSeek(
@@ -241,6 +252,27 @@ class LockscreenSliderPlayer(
           .remove(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
           .build(),
       )
+      .build()
+  }
+
+  private fun State.withSecondaryText(): State {
+    if (secondaryTextMode == LockscreenSecondaryTextMode.AUTHOR) return this
+    val chapterName = voicePlayer.currentChapterMarkInfo()?.name?.takeIf { it.isNotBlank() } ?: return this
+    val playlist = getPlaylist()
+    val currentItem = playlist.getOrNull(currentMediaItemIndex) ?: return this
+    val currentMetadata = currentItem.mediaMetadata ?: currentItem.mediaItem.mediaMetadata
+    val metadata = currentMetadata.buildUpon()
+      .setArtist(chapterName)
+      .build()
+    val chapterNameItem = currentItem.buildUpon()
+      .setMediaItem(currentItem.mediaItem.buildUpon().setMediaMetadata(metadata).build())
+      .setMediaMetadata(metadata)
+      .build()
+    val chapterNamePlaylist = playlist.toMutableList().apply {
+      this[currentMediaItemIndex] = chapterNameItem
+    }
+    return buildUpon()
+      .setPlaylist(chapterNamePlaylist)
       .build()
   }
 

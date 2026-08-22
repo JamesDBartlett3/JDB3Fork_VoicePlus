@@ -95,6 +95,13 @@ class MediaItemProvider(
 
   internal suspend fun chapters(book: Book): List<MediaItem> {
     val overrideMap = overrideMapFor(book.content.id)
+    return chapters(book, overrideMap)
+  }
+
+  internal fun chapters(
+    book: Book,
+    overrideMap: Map<Pair<String, Long>, String>,
+  ): List<MediaItem> {
     return book.chapters.map { chapter ->
       mediaItem(
         chapter = chapter,
@@ -160,7 +167,7 @@ class MediaItemProvider(
     )
   }
 
-  private suspend fun overrideMapFor(bookId: BookId): Map<Pair<String, Long>, String> {
+  internal suspend fun overrideMapFor(bookId: BookId): Map<Pair<String, Long>, String> {
     return chapterNameOverrideRepo.overridesForBook(bookId).first().byMarkKey()
   }
 

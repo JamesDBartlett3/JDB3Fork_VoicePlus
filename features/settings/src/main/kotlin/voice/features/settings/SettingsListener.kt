@@ -1,5 +1,6 @@
 package voice.features.settings
 
+import voice.core.data.LockscreenSecondaryTextMode
 import voice.core.data.LockscreenSliderMode
 import voice.core.data.MediaButtonClickAction
 import java.time.LocalTime
@@ -35,6 +36,8 @@ interface SettingsListener {
 
   fun onLockscreenSliderRowClick()
   fun setLockscreenSliderMode(mode: LockscreenSliderMode)
+  fun onLockscreenSecondaryTextRowClick()
+  fun setLockscreenSecondaryTextMode(mode: LockscreenSecondaryTextMode)
 
   fun setExperimentalPlaybackPersistence(enabled: Boolean)
   fun onExperimentalPlaybackPersistenceInfoClick()
@@ -77,6 +80,8 @@ interface SettingsListener {
 
       override fun onLockscreenSliderRowClick() {}
       override fun setLockscreenSliderMode(mode: LockscreenSliderMode) {}
+      override fun onLockscreenSecondaryTextRowClick() {}
+      override fun setLockscreenSecondaryTextMode(mode: LockscreenSecondaryTextMode) {}
 
       override fun setExperimentalPlaybackPersistence(enabled: Boolean) {}
       override fun onExperimentalPlaybackPersistenceInfoClick() {}

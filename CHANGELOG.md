@@ -1,11 +1,11 @@
 # VoicePlus Changelog
 
-## v1.25 — Ideas & Bug Reports
+## v1.25 — Lock Screen, Bookmarks & Logs
 
-### Help & Feedback
-- New prominent **Help & feedback** section in Settings makes it easy to suggest an idea or report a problem.
-- Idea suggestions open a structured GitHub Discussion where the community can discuss and vote on improvements.
-- Bug reports open a guided GitHub form with the VoicePlus version, Android version, and device model pre-filled.
+- Customize lock-screen progress, secondary text, and chapter/timed-skip controls.
+- Clearer, more compact bookmarks and listening logs with chapter positions and timestamps.
+- Sleep timers no longer create automatic bookmarks.
+- Suggest ideas or report problems directly from Settings.
 
 ---
 

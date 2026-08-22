@@ -194,14 +194,6 @@ class BookPlayViewModel(
 
   fun onAcceptSleepTime(time: Int) {
     updateSleepTimeViewState {
-      val book = currentBook() ?: return@updateSleepTimeViewState null
-      scope.launch {
-        bookmarkRepository.addBookmarkAtBookPosition(
-          book = book,
-          setBySleepTimer = true,
-          title = null,
-        )
-      }
       sleepTimer.enable(TimedWithDuration(time.minutes))
       null
     }

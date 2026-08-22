@@ -1,13 +1,22 @@
 package voice.features.bookmark
 
 import voice.core.data.Bookmark
+import java.time.Instant
 
 data class BookmarkItemViewState(
   val title: String,
-  val subtitle: String,
+  val chapterPosition: String,
+  val bookPosition: String,
+  val addedAt: Instant,
+  val type: BookmarkType,
   val id: Bookmark.Id,
-  val showSleepIcon: Boolean,
 )
+
+enum class BookmarkType {
+  Manual,
+  QuickBookmark,
+  SleepTimer,
+}
 
 data class BookmarkViewState(
   val bookmarks: List<BookmarkItemViewState>,

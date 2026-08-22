@@ -195,6 +195,7 @@ class ListeningLogViewModelTest {
       val transports = entries.filterIsInstance<ListeningLogEntry.Transport>()
       assertEquals(1, transports.size)
       assertEquals(ListeningEventType.Back, transports.single().type)
+      assertTrue(transports.single().timeLabel.isNotBlank())
       // Time-sorted DESC: Pause(@60s) > Back(@30s) > Play(@0s)
       assertEquals(
         listOf(

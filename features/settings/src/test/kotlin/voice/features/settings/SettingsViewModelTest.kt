@@ -20,6 +20,7 @@ import org.junit.Test
 import voice.core.common.AppInfoProvider
 import voice.core.common.DispatcherProvider
 import voice.core.data.GridMode
+import voice.core.data.LockscreenSecondaryTextMode
 import voice.core.data.LockscreenSliderMode
 import voice.core.data.MediaButtonClickAction
 import voice.core.data.sleeptimer.SleepTimerPreference
@@ -50,6 +51,7 @@ class SettingsViewModelTest {
   private val mediaButtonDoubleClickHandlerStore = MemoryDataStore(MediaButtonClickAction.SKIP_FORWARD)
   private val mediaButtonTripleClickHandlerStore = MemoryDataStore(MediaButtonClickAction.SKIP_BACKWARD)
   private val lockscreenSliderModeStore = MemoryDataStore(LockscreenSliderMode.CHAPTER)
+  private val lockscreenSecondaryTextModeStore = MemoryDataStore(LockscreenSecondaryTextMode.CHAPTER)
   private val experimentalPlaybackPersistenceStore = MemoryDataStore(false)
   private val ignoreFileTagsStore = MemoryDataStore(false)
   private val mediaScanTrigger = mockk<MediaScanTrigger>(relaxed = true)
@@ -67,6 +69,7 @@ class SettingsViewModelTest {
     mediaButtonDoubleClickHandlerStore = mediaButtonDoubleClickHandlerStore,
     mediaButtonTripleClickHandlerStore = mediaButtonTripleClickHandlerStore,
     lockscreenSliderModeStore = lockscreenSliderModeStore,
+    lockscreenSecondaryTextModeStore = lockscreenSecondaryTextModeStore,
     experimentalPlaybackPersistenceStore = experimentalPlaybackPersistenceStore,
     ignoreFileTagsStore = ignoreFileTagsStore,
     mediaScanTrigger = mediaScanTrigger,
@@ -96,6 +99,19 @@ class SettingsViewModelTest {
       viewModel.setLockscreenSliderMode(LockscreenSliderMode.AUDIOBOOK)
 
       awaitItem().lockscreenSliderMode shouldBe LockscreenSliderMode.AUDIOBOOK
+    }
+  }
+
+  @Test
+  fun `lockscreen secondary text mode is persisted`() = scope.runTest {
+    backgroundScope.launchMolecule(RecompositionMode.Immediate) {
+      viewModel.viewState()
+    }.test {
+      awaitItem().lockscreenSecondaryTextMode shouldBe LockscreenSecondaryTextMode.CHAPTER
+
+      viewModel.setLockscreenSecondaryTextMode(LockscreenSecondaryTextMode.AUTHOR)
+
+      awaitItem().lockscreenSecondaryTextMode shouldBe LockscreenSecondaryTextMode.AUTHOR
     }
   }
 

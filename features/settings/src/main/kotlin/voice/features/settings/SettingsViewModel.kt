@@ -18,6 +18,7 @@ import voice.core.common.DispatcherProvider
 import voice.core.common.MainScope
 import voice.core.common.RetainedViewModel
 import voice.core.data.GridMode
+import voice.core.data.LockscreenSecondaryTextMode
 import voice.core.data.LockscreenSliderMode
 import voice.core.data.MediaButtonClickAction
 import voice.core.data.sleeptimer.SleepTimerPreference
@@ -26,6 +27,7 @@ import voice.core.data.store.DarkThemeStore
 import voice.core.data.store.ExperimentalPlaybackPersistenceStore
 import voice.core.data.store.GridModeStore
 import voice.core.data.store.IgnoreFileTagsStore
+import voice.core.data.store.LockscreenSecondaryTextModeStore
 import voice.core.data.store.LockscreenSliderModeStore
 import voice.core.data.store.MediaButtonDoubleClickHandlerStore
 import voice.core.data.store.MediaButtonTripleClickHandlerStore
@@ -66,6 +68,8 @@ class SettingsViewModel(
   private val mediaButtonTripleClickHandlerStore: DataStore<MediaButtonClickAction>,
   @LockscreenSliderModeStore
   private val lockscreenSliderModeStore: DataStore<LockscreenSliderMode>,
+  @LockscreenSecondaryTextModeStore
+  private val lockscreenSecondaryTextModeStore: DataStore<LockscreenSecondaryTextMode>,
   @ExperimentalPlaybackPersistenceStore
   private val experimentalPlaybackPersistenceStore: DataStore<Boolean>,
   @IgnoreFileTagsStore
@@ -99,6 +103,9 @@ class SettingsViewModel(
     val lockscreenSliderMode by remember { lockscreenSliderModeStore.data }.collectAsState(
       initial = LockscreenSliderMode.CHAPTER,
     )
+    val lockscreenSecondaryTextMode by remember { lockscreenSecondaryTextModeStore.data }.collectAsState(
+      initial = LockscreenSecondaryTextMode.CHAPTER,
+    )
     val experimentalPlaybackPersistenceEnabled by remember { experimentalPlaybackPersistenceStore.data }.collectAsState(
       initial = false,
     )
@@ -125,6 +132,7 @@ class SettingsViewModel(
       mediaButtonDoubleClickAction = mediaButtonDoubleClickAction,
       mediaButtonTripleClickAction = mediaButtonTripleClickAction,
       lockscreenSliderMode = lockscreenSliderMode,
+      lockscreenSecondaryTextMode = lockscreenSecondaryTextMode,
       experimentalPlaybackPersistenceEnabled = experimentalPlaybackPersistenceEnabled,
       sleepTimerAutoResetEnabled = autoSleepTimer.autoResetEnabled,
       ignoreFileTags = ignoreFileTags,
@@ -286,6 +294,16 @@ class SettingsViewModel(
     }
   }
 
+  override fun onLockscreenSecondaryTextRowClick() {
+    dialog.value = SettingsViewState.Dialog.LockscreenSecondaryTextMode
+  }
+
+  override fun setLockscreenSecondaryTextMode(mode: LockscreenSecondaryTextMode) {
+    scope.launch {
+      lockscreenSecondaryTextModeStore.updateData { mode }
+    }
+  }
+
   override fun setExperimentalPlaybackPersistence(enabled: Boolean) {
     scope.launch {
       experimentalPlaybackPersistenceStore.updateData { enabled }
@@ -326,7 +344,7 @@ class SettingsViewModel(
   }
 }
 
-private fun String.urlEncoded(): String = URLEncoder.encode(this, StandardCharsets.UTF_8)
+private fun String.urlEncoded(): String = URLEncoder.encode(this, StandardCharsets.UTF_8.name())
 
 private const val IDEAS_URL = "https://github.com/mistermo-vibecode/VoicePlus/discussions/categories/ideas"
 private const val BUG_REPORT_URL = "https://github.com/mistermo-vibecode/VoicePlus/issues/new"

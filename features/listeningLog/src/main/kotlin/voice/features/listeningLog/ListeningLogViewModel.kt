@@ -225,6 +225,7 @@ class ListeningLogViewModel(
         val location = book.resolveLocation(event.chapterId, event.positionMs, offset, overrideMap)
         ListeningLogEntry.Transport(
           id = "e${event.id}",
+          timeLabel = timestamp.atZone(ZoneId.systemDefault()).format(timeFormatter),
           type = checkNotNull(ListeningEventType.fromId(event.type)),
           fromPositionMs = event.fromPositionMs,
           chapterName = location.chapterName,
@@ -327,6 +328,7 @@ data class ListeningLogGroup(
 
 sealed interface ListeningLogEntry {
   val id: String
+  val timeLabel: String
   val chapterId: ChapterId
   val positionMs: Long
   val chapterName: String
@@ -335,7 +337,7 @@ sealed interface ListeningLogEntry {
 
   data class Play(
     override val id: String,
-    val timeLabel: String,
+    override val timeLabel: String,
     override val chapterName: String,
     override val positionLabel: String,
     override val remainingLabel: String,
@@ -346,7 +348,7 @@ sealed interface ListeningLogEntry {
 
   data class Pause(
     override val id: String,
-    val timeLabel: String,
+    override val timeLabel: String,
     val endReason: ListeningSessionEndReason?,
     override val chapterName: String,
     override val positionLabel: String,
@@ -357,6 +359,7 @@ sealed interface ListeningLogEntry {
 
   data class Transport(
     override val id: String,
+    override val timeLabel: String,
     val type: ListeningEventType,
     val fromPositionMs: Long?,
     override val chapterName: String,

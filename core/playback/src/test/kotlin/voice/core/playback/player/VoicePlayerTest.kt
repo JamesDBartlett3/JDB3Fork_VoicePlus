@@ -34,6 +34,7 @@ import voice.core.data.BookId
 import voice.core.data.Chapter
 import voice.core.data.ChapterId
 import voice.core.data.ChapterMark
+import voice.core.data.LockscreenSecondaryTextMode
 import voice.core.data.LockscreenSliderMode
 import voice.core.data.MarkData
 import voice.core.data.markForPosition
@@ -43,7 +44,7 @@ import voice.core.playback.ChapterMarkChangeNotifier
 import voice.core.playback.LivePlaybackState
 import voice.core.playback.MemoryDataStore
 import voice.core.playback.history.PlaybackIntentHolder
-import voice.core.playback.session.LockscreenSliderPlayer
+import voice.core.playback.session.LockscreenPlayer
 import voice.core.playback.session.MediaId
 import voice.core.playback.session.MediaItemProvider
 import voice.core.playback.session.search.book
@@ -137,7 +138,7 @@ class VoicePlayerTest {
   )
 
   @Test
-  fun `seekToNext does not clip`() = scope.runTest {
+  fun `seekForward does not clip`() = scope.runTest {
     setMediaItems(
       listOf(
         chapter(
@@ -157,27 +158,27 @@ class VoicePlayerTest {
     awaitReady()
     player.shouldHavePosition(0, 0)
 
-    player.seekToNext()
+    player.seekForward()
     player.shouldHavePosition(0, 7_000)
 
-    player.seekToNext()
+    player.seekForward()
     player.shouldHavePosition(0, 14_000)
 
-    player.seekToNext()
+    player.seekForward()
     player.shouldHavePosition(0, 21_000)
 
-    player.seekToNext()
+    player.seekForward()
     player.shouldHavePosition(0, 28_000)
 
-    player.seekToNext()
+    player.seekForward()
     player.shouldHavePosition(1, 5_000)
 
-    player.seekToNext()
+    player.seekForward()
     player.shouldHavePosition(1, 12_000)
   }
 
   @Test
-  fun `seekToPrevious does not clip`() = scope.runTest {
+  fun `seekBack does not clip`() = scope.runTest {
     setMediaItems(
       listOf(
         chapter(
@@ -199,24 +200,24 @@ class VoicePlayerTest {
 
     player.shouldHavePosition(1, 12_000)
 
-    player.seekToPrevious()
+    player.seekBack()
     player.shouldHavePosition(1, 7_000)
 
-    player.seekToPrevious()
+    player.seekBack()
     player.shouldHavePosition(1, 2_000)
 
-    player.seekToPrevious()
+    player.seekBack()
     player.shouldHavePosition(0, 9_000)
 
-    player.seekToPrevious()
+    player.seekBack()
     player.shouldHavePosition(0, 4_000)
 
-    player.seekToPrevious()
+    player.seekBack()
     player.shouldHavePosition(0, 0)
   }
 
   @Test
-  fun `forceSeekToNext jumps to chapters`() = scope.runTest {
+  fun `seekToNextMediaItem jumps to chapters`() = scope.runTest {
     setMediaItems(
       listOf(
         chapter(
@@ -234,21 +235,21 @@ class VoicePlayerTest {
     awaitReady()
     player.shouldHavePosition(0, 0)
 
-    player.forceSeekToNext()
+    player.seekToNextMediaItem()
     player.shouldHavePosition(0, 12_000)
 
-    player.forceSeekToNext()
+    player.seekToNextMediaItem()
     player.shouldHavePosition(1, 0)
 
-    player.forceSeekToNext()
+    player.seekToNextMediaItem()
     player.shouldHavePosition(1, 12_000)
 
-    player.forceSeekToNext()
+    player.seekToNextMediaItem()
     player.shouldHavePosition(1, 12_000)
   }
 
   @Test
-  fun `forceSeekToPrevious jumps to chapters`() = scope.runTest {
+  fun `seekToPreviousMediaItem jumps to chapters`() = scope.runTest {
     setMediaItems(
       listOf(
         chapter(
@@ -267,16 +268,16 @@ class VoicePlayerTest {
     awaitReady()
     player.shouldHavePosition(1, 18_000)
 
-    player.forceSeekToPrevious()
+    player.seekToPreviousMediaItem()
     player.shouldHavePosition(1, 12_000)
 
-    player.forceSeekToPrevious()
+    player.seekToPreviousMediaItem()
     player.shouldHavePosition(1, 0)
 
-    player.forceSeekToPrevious()
+    player.seekToPreviousMediaItem()
     player.shouldHavePosition(0, 12_000)
 
-    player.forceSeekToPrevious()
+    player.seekToPreviousMediaItem()
     player.shouldHavePosition(0, 0)
   }
 
@@ -329,9 +330,10 @@ class VoicePlayerTest {
     player.seekTo(45_000)
 
     val modeStore = MemoryDataStore(LockscreenSliderMode.AUDIOBOOK)
-    val lockscreenPlayer = LockscreenSliderPlayer(
+    val lockscreenPlayer = LockscreenPlayer(
       voicePlayer = player,
       modeStore = modeStore,
+      secondaryTextModeStore = MemoryDataStore(LockscreenSecondaryTextMode.AUTHOR),
       chapterMarkChangeNotifier = ChapterMarkChangeNotifier(),
       scope = backgroundScope,
     )
@@ -356,6 +358,44 @@ class VoicePlayerTest {
   }
 
   @Test
+  fun `lockscreen secondary text switches from author to current chapter name`() = scope.runTest {
+    setMediaItems(
+      listOf(
+        chapter(
+          ChapterMark(startMs = 0, endMs = 29_999, name = "First Section"),
+          ChapterMark(startMs = 30_000, endMs = 60_000, name = "Later Section"),
+        ),
+      ),
+    )
+    player.prepare()
+    awaitReady()
+    player.seekTo(45_000)
+
+    val secondaryTextModeStore = MemoryDataStore(LockscreenSecondaryTextMode.AUTHOR)
+    val lockscreenPlayer = LockscreenPlayer(
+      voicePlayer = player,
+      modeStore = MemoryDataStore(LockscreenSliderMode.CHAPTER),
+      secondaryTextModeStore = secondaryTextModeStore,
+      chapterMarkChangeNotifier = chapterMarkChangeNotifier,
+      scope = backgroundScope,
+    )
+    runCurrent()
+
+    lockscreenPlayer.mediaMetadata.artist shouldBe currentBook.content.author
+
+    secondaryTextModeStore.updateData { LockscreenSecondaryTextMode.CHAPTER }
+    runCurrent()
+
+    lockscreenPlayer.mediaMetadata.artist shouldBe "Later Section"
+
+    player.seekTo(5_000)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    runCurrent()
+
+    lockscreenPlayer.mediaMetadata.artist shouldBe "First Section"
+  }
+
+  @Test
   fun `audiobook lockscreen slider aggregates files and maps clamped seeks`() = scope.runTest {
     val chapters = listOf(
       chapter(ChapterMark(startMs = 0, endMs = 10_000, name = null)),
@@ -366,9 +406,10 @@ class VoicePlayerTest {
     player.prepare()
     awaitReady()
 
-    val lockscreenPlayer = LockscreenSliderPlayer(
+    val lockscreenPlayer = LockscreenPlayer(
       voicePlayer = player,
       modeStore = MemoryDataStore(LockscreenSliderMode.AUDIOBOOK),
+      secondaryTextModeStore = MemoryDataStore(LockscreenSecondaryTextMode.AUTHOR),
       chapterMarkChangeNotifier = ChapterMarkChangeNotifier(),
       scope = backgroundScope,
     )
@@ -408,9 +449,10 @@ class VoicePlayerTest {
     awaitReady()
     player.seekTo(1, 5_000)
 
-    val lockscreenPlayer = LockscreenSliderPlayer(
+    val lockscreenPlayer = LockscreenPlayer(
       voicePlayer = player,
       modeStore = MemoryDataStore(LockscreenSliderMode.AUDIOBOOK),
+      secondaryTextModeStore = MemoryDataStore(LockscreenSecondaryTextMode.AUTHOR),
       chapterMarkChangeNotifier = ChapterMarkChangeNotifier(),
       scope = backgroundScope,
     )
@@ -437,9 +479,10 @@ class VoicePlayerTest {
     awaitReady()
     player.seekTo(5_000)
 
-    val lockscreenPlayer = LockscreenSliderPlayer(
+    val lockscreenPlayer = LockscreenPlayer(
       voicePlayer = player,
       modeStore = MemoryDataStore(LockscreenSliderMode.CHAPTER),
+      secondaryTextModeStore = MemoryDataStore(LockscreenSecondaryTextMode.AUTHOR),
       chapterMarkChangeNotifier = ChapterMarkChangeNotifier(),
       scope = backgroundScope,
     )
@@ -461,9 +504,10 @@ class VoicePlayerTest {
     awaitReady()
     player.seekTo(1, 5_000)
 
-    val lockscreenPlayer = LockscreenSliderPlayer(
+    val lockscreenPlayer = LockscreenPlayer(
       voicePlayer = player,
       modeStore = MemoryDataStore(LockscreenSliderMode.AUDIOBOOK),
+      secondaryTextModeStore = MemoryDataStore(LockscreenSecondaryTextMode.AUTHOR),
       chapterMarkChangeNotifier = ChapterMarkChangeNotifier(),
       scope = backgroundScope,
     )
@@ -495,9 +539,10 @@ class VoicePlayerTest {
     awaitReady()
     player.seekTo(45_000)
 
-    val lockscreenPlayer = LockscreenSliderPlayer(
+    val lockscreenPlayer = LockscreenPlayer(
       voicePlayer = player,
       modeStore = MemoryDataStore(LockscreenSliderMode.CHAPTER),
+      secondaryTextModeStore = MemoryDataStore(LockscreenSecondaryTextMode.AUTHOR),
       chapterMarkChangeNotifier = ChapterMarkChangeNotifier(),
       scope = backgroundScope,
     )
@@ -528,9 +573,10 @@ class VoicePlayerTest {
     player.seekTo(currentMark.startMs)
 
     val lockscreenScope = CoroutineScope(backgroundScope.coroutineContext + Dispatchers.Main.immediate)
-    val lockscreenPlayer = LockscreenSliderPlayer(
+    val lockscreenPlayer = LockscreenPlayer(
       voicePlayer = player,
       modeStore = MemoryDataStore(LockscreenSliderMode.CHAPTER),
+      secondaryTextModeStore = MemoryDataStore(LockscreenSecondaryTextMode.AUTHOR),
       chapterMarkChangeNotifier = chapterMarkChangeNotifier,
       scope = lockscreenScope,
     )

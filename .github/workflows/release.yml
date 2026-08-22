@@ -18,6 +18,23 @@ jobs:
 
       - uses: ./.github/actions/build_setup
 
+      - name: Verify release metadata
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version_name=$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)"/\1/p' app/build.gradle.kts | head -n 1)
+          version_code=$(sed -n 's/^[[:space:]]*versionCode = \([0-9]*\)/\1/p' app/build.gradle.kts | head -n 1)
+          if [[ "$RELEASE_TAG" != "v$version_name" ]]; then
+            echo "Tag $RELEASE_TAG does not match app version $version_name" >&2
+            exit 1
+          fi
+          notes="fastlane/metadata/android/en-US/changelogs/$version_code.txt"
+          if [[ ! -s "$notes" ]]; then
+            echo "Missing release notes: $notes" >&2
+            exit 1
+          fi
+          echo "RELEASE_NOTES_PATH=$notes" >> "$GITHUB_ENV"
+
       - name: Decode Keystore
         run: |
           mkdir -p signing
@@ -38,6 +55,10 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           files: app/build/outputs/apk/libre/release/app-libre-release-signed.apk
+          body_path: ${{ env.RELEASE_NOTES_PATH }}
+          fail_on_unmatched_files: true
           overwrite_files: false
-          generate_release_notes: true
-          draft: true
+          generate_release_notes: false
+          draft: false
+          prerelease: false
+          make_latest: true
