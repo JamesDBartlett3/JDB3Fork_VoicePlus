@@ -14,12 +14,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ViewList
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Book
+import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Gavel
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -58,6 +60,7 @@ import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.IntoSet
 import dev.zacsweers.metro.Provides
 import voice.core.common.rootGraphAs
+import voice.core.data.LockscreenSecondaryTextMode
 import voice.core.data.LockscreenSliderMode
 import voice.core.ui.VoiceTheme
 import voice.features.settings.SettingsListener
@@ -149,11 +152,6 @@ private fun Settings(
             SettingsDivider()
             AutoRewindRow(viewState.autoRewindInSeconds, listener::onAutoRewindRowClick)
             SettingsDivider()
-            LockscreenSliderRow(
-              currentMode = viewState.lockscreenSliderMode,
-              onClick = listener::onLockscreenSliderRowClick,
-            )
-            SettingsDivider()
             MediaButtonActionRow(
               title = stringResource(StringsR.string.pref_media_button_double_click),
               currentAction = viewState.mediaButtonDoubleClickAction,
@@ -164,6 +162,22 @@ private fun Settings(
               title = stringResource(StringsR.string.pref_media_button_triple_click),
               currentAction = viewState.mediaButtonTripleClickAction,
               onClick = listener::onMediaButtonTripleClickRowClick,
+            )
+          }
+        }
+      }
+
+      item(key = "lockscreen") {
+        SettingsSection(stringResource(StringsR.string.settings_section_lockscreen)) {
+          SettingsGroup {
+            LockscreenSliderRow(
+              currentMode = viewState.lockscreenSliderMode,
+              onClick = listener::onLockscreenSliderRowClick,
+            )
+            SettingsDivider()
+            LockscreenSecondaryTextRow(
+              currentMode = viewState.lockscreenSecondaryTextMode,
+              onClick = listener::onLockscreenSecondaryTextRowClick,
             )
           }
         }
@@ -324,6 +338,29 @@ private fun Settings(
         }
       }
 
+      item(key = "help_feedback") {
+        SettingsSection(stringResource(StringsR.string.settings_section_help_feedback)) {
+          Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            PrioritySettingsItem(
+              title = stringResource(StringsR.string.pref_suggest_idea),
+              supportingText = stringResource(StringsR.string.settings_suggest_idea_summary),
+              icon = Icons.Outlined.Lightbulb,
+              containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+              contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+              onClick = listener::suggestIdea,
+            )
+            PrioritySettingsItem(
+              title = stringResource(StringsR.string.pref_report_issue),
+              supportingText = stringResource(StringsR.string.settings_report_issue_summary),
+              icon = Icons.Outlined.BugReport,
+              containerColor = MaterialTheme.colorScheme.errorContainer,
+              contentColor = MaterialTheme.colorScheme.onErrorContainer,
+              onClick = listener::reportProblem,
+            )
+          }
+        }
+      }
+
       item(key = "about") {
         SettingsSection(stringResource(StringsR.string.settings_section_about)) {
           SettingsGroup {
@@ -446,6 +483,16 @@ private fun Dialog(
         currentMode = viewState.lockscreenSliderMode,
         onModeSelect = {
           listener.setLockscreenSliderMode(it)
+          listener.dismissDialog()
+        },
+        onDismiss = listener::dismissDialog,
+      )
+    }
+    SettingsViewState.Dialog.LockscreenSecondaryTextMode -> {
+      LockscreenSecondaryTextDialog(
+        currentMode = viewState.lockscreenSecondaryTextMode,
+        onModeSelect = {
+          listener.setLockscreenSecondaryTextMode(it)
           listener.dismissDialog()
         },
         onDismiss = listener::dismissDialog,
@@ -574,8 +621,75 @@ private fun LockscreenSliderDialog(
   )
 }
 
+@Composable
+private fun LockscreenSecondaryTextRow(
+  currentMode: LockscreenSecondaryTextMode,
+  onClick: () -> Unit,
+) {
+  val title = stringResource(StringsR.string.pref_lockscreen_secondary_text)
+  ListItem(
+    modifier = Modifier
+      .clickable(onClick = onClick)
+      .fillMaxWidth(),
+    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+    leadingContent = {
+      Icon(Icons.AutoMirrored.Outlined.ViewList, contentDescription = null)
+    },
+    headlineContent = {
+      Text(title)
+    },
+    trailingContent = {
+      Text(stringResource(currentMode.toLabelRes()))
+    },
+  )
+}
+
+@Composable
+private fun LockscreenSecondaryTextDialog(
+  currentMode: LockscreenSecondaryTextMode,
+  onModeSelect: (LockscreenSecondaryTextMode) -> Unit,
+  onDismiss: () -> Unit,
+) {
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    title = { Text(stringResource(StringsR.string.pref_lockscreen_secondary_text)) },
+    text = {
+      Column(Modifier.selectableGroup()) {
+        LockscreenSecondaryTextMode.entries.forEach { mode ->
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .selectable(
+                selected = mode == currentMode,
+                onClick = { onModeSelect(mode) },
+                role = Role.RadioButton,
+              ),
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            RadioButton(
+              selected = mode == currentMode,
+              onClick = null,
+            )
+            Text(stringResource(mode.toLabelRes()))
+          }
+        }
+      }
+    },
+    confirmButton = {
+      TextButton(onClick = onDismiss) {
+        Text(stringResource(StringsR.string.close))
+      }
+    },
+  )
+}
+
 private fun LockscreenSliderMode.toLabelRes(): Int = when (this) {
   LockscreenSliderMode.AUDIOBOOK -> StringsR.string.lockscreen_slider_audiobook
   LockscreenSliderMode.CHAPTER -> StringsR.string.lockscreen_slider_chapter
   LockscreenSliderMode.DISABLED -> StringsR.string.lockscreen_slider_disabled
+}
+
+private fun LockscreenSecondaryTextMode.toLabelRes(): Int = when (this) {
+  LockscreenSecondaryTextMode.AUTHOR -> StringsR.string.lockscreen_secondary_text_author
+  LockscreenSecondaryTextMode.CHAPTER -> StringsR.string.lockscreen_secondary_text_chapter
 }

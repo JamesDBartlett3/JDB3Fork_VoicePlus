@@ -1,0 +1,4 @@
+- Customize lock-screen progress, secondary text, and playback controls.
+- Clearer, more compact bookmarks and listening logs with chapter positions and timestamps.
+- Sleep timers no longer create automatic bookmarks.
+- Suggest ideas or report problems directly from Settings.

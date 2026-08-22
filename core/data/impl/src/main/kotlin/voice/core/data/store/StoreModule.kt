@@ -13,6 +13,7 @@ import kotlinx.serialization.builtins.nullable
 import kotlinx.serialization.builtins.serializer
 import voice.core.data.BookId
 import voice.core.data.GridMode
+import voice.core.data.LockscreenSecondaryTextMode
 import voice.core.data.LockscreenSliderMode
 import voice.core.data.MediaButtonClickAction
 import voice.core.data.OpenSessionCheckpoint
@@ -212,6 +213,17 @@ public interface StoreModule {
       serializer = LockscreenSliderMode.serializer(),
       defaultValue = LockscreenSliderMode.CHAPTER,
       fileName = "lockscreenSliderMode",
+    )
+  }
+
+  @Provides
+  @SingleIn(AppScope::class)
+  @LockscreenSecondaryTextModeStore
+  private fun lockscreenSecondaryTextModeStore(factory: VoiceDataStoreFactory): DataStore<LockscreenSecondaryTextMode> {
+    return factory.create(
+      serializer = LockscreenSecondaryTextMode.serializer(),
+      defaultValue = LockscreenSecondaryTextMode.CHAPTER,
+      fileName = "lockscreenSecondaryTextMode",
     )
   }
 

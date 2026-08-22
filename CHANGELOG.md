@@ -1,5 +1,14 @@
 # VoicePlus Changelog
 
+## v1.25 — Lock Screen, Bookmarks & Logs
+
+- Customize lock-screen progress, secondary text, and chapter/timed-skip controls.
+- Clearer, more compact bookmarks and listening logs with chapter positions and timestamps.
+- Sleep timers no longer create automatic bookmarks.
+- Suggest ideas or report problems directly from Settings.
+
+---
+
 ## v1.24 — Lock-Screen Slider, System Backup & Polish
 
 ### Playback

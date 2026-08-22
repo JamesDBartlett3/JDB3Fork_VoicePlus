@@ -1,0 +1,49 @@
+title: "[Idea] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping make VoicePlus better. Describe the outcome you want; you do not need to know how it should be built.
+
+        If VoicePlus is not working as expected, please use the bug report form instead.
+  - type: checkboxes
+    id: existing-idea
+    attributes:
+      label: Before suggesting
+      options:
+        - label: I searched existing discussions and did not find this idea.
+          required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of VoicePlus would this improve?
+      options:
+        - Library and folders
+        - Playback and controls
+        - Sleep timer
+        - Listening stats
+        - Bookmarks and characters
+        - Backup and restore
+        - Appearance and accessibility
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like VoicePlus to do?
+      description: Explain the feature or improvement in your own words.
+      placeholder: I would like VoicePlus to…
+    validations:
+      required: true
+  - type: textarea
+    id: benefit
+    attributes:
+      label: How would this help?
+      description: A short example or use case helps others understand and discuss the idea.
+      placeholder: This would help when…
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Anything else?
+      description: Add mockups, screenshots, links, or alternatives you have considered. Please remove personal information first.

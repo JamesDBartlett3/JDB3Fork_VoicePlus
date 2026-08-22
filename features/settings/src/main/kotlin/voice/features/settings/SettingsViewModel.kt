@@ -1,5 +1,6 @@
 package voice.features.settings
 
+import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -17,6 +18,7 @@ import voice.core.common.DispatcherProvider
 import voice.core.common.MainScope
 import voice.core.common.RetainedViewModel
 import voice.core.data.GridMode
+import voice.core.data.LockscreenSecondaryTextMode
 import voice.core.data.LockscreenSliderMode
 import voice.core.data.MediaButtonClickAction
 import voice.core.data.sleeptimer.SleepTimerPreference
@@ -25,6 +27,7 @@ import voice.core.data.store.DarkThemeStore
 import voice.core.data.store.ExperimentalPlaybackPersistenceStore
 import voice.core.data.store.GridModeStore
 import voice.core.data.store.IgnoreFileTagsStore
+import voice.core.data.store.LockscreenSecondaryTextModeStore
 import voice.core.data.store.LockscreenSliderModeStore
 import voice.core.data.store.MediaButtonDoubleClickHandlerStore
 import voice.core.data.store.MediaButtonTripleClickHandlerStore
@@ -37,6 +40,8 @@ import voice.core.ui.DARK_THEME_SETTABLE
 import voice.core.ui.GridCount
 import voice.navigation.Destination
 import voice.navigation.Navigator
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.time.LocalTime
 import kotlin.time.Duration.Companion.minutes
 
@@ -63,6 +68,8 @@ class SettingsViewModel(
   private val mediaButtonTripleClickHandlerStore: DataStore<MediaButtonClickAction>,
   @LockscreenSliderModeStore
   private val lockscreenSliderModeStore: DataStore<LockscreenSliderMode>,
+  @LockscreenSecondaryTextModeStore
+  private val lockscreenSecondaryTextModeStore: DataStore<LockscreenSecondaryTextMode>,
   @ExperimentalPlaybackPersistenceStore
   private val experimentalPlaybackPersistenceStore: DataStore<Boolean>,
   @IgnoreFileTagsStore
@@ -96,6 +103,9 @@ class SettingsViewModel(
     val lockscreenSliderMode by remember { lockscreenSliderModeStore.data }.collectAsState(
       initial = LockscreenSliderMode.CHAPTER,
     )
+    val lockscreenSecondaryTextMode by remember { lockscreenSecondaryTextModeStore.data }.collectAsState(
+      initial = LockscreenSecondaryTextMode.CHAPTER,
+    )
     val experimentalPlaybackPersistenceEnabled by remember { experimentalPlaybackPersistenceStore.data }.collectAsState(
       initial = false,
     )
@@ -122,6 +132,7 @@ class SettingsViewModel(
       mediaButtonDoubleClickAction = mediaButtonDoubleClickAction,
       mediaButtonTripleClickAction = mediaButtonTripleClickAction,
       lockscreenSliderMode = lockscreenSliderMode,
+      lockscreenSecondaryTextMode = lockscreenSecondaryTextMode,
       experimentalPlaybackPersistenceEnabled = experimentalPlaybackPersistenceEnabled,
       sleepTimerAutoResetEnabled = autoSleepTimer.autoResetEnabled,
       ignoreFileTags = ignoreFileTags,
@@ -236,6 +247,23 @@ class SettingsViewModel(
     navigator.goTo(Destination.OpenSourceLicenses)
   }
 
+  override fun suggestIdea() {
+    navigator.goTo(Destination.Website(IDEAS_URL))
+  }
+
+  override fun reportProblem() {
+    val query = listOf(
+      "template" to "bug.yml",
+      "version" to appInfoProvider.versionName,
+      "androidversion" to "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+      "device" to "${Build.MANUFACTURER} ${Build.MODEL}",
+    ).joinToString("&") { (name, value) ->
+      "${name.urlEncoded()}=${value.urlEncoded()}"
+    }
+    val url = "$BUG_REPORT_URL?$query"
+    navigator.goTo(Destination.Website(url))
+  }
+
   override fun onMediaButtonDoubleClickRowClick() {
     dialog.value = SettingsViewState.Dialog.MediaButtonDoubleClickAction
   }
@@ -263,6 +291,16 @@ class SettingsViewModel(
   override fun setLockscreenSliderMode(mode: LockscreenSliderMode) {
     scope.launch {
       lockscreenSliderModeStore.updateData { mode }
+    }
+  }
+
+  override fun onLockscreenSecondaryTextRowClick() {
+    dialog.value = SettingsViewState.Dialog.LockscreenSecondaryTextMode
+  }
+
+  override fun setLockscreenSecondaryTextMode(mode: LockscreenSecondaryTextMode) {
+    scope.launch {
+      lockscreenSecondaryTextModeStore.updateData { mode }
     }
   }
 
@@ -305,3 +343,8 @@ class SettingsViewModel(
     }
   }
 }
+
+private fun String.urlEncoded(): String = URLEncoder.encode(this, StandardCharsets.UTF_8.name())
+
+private const val IDEAS_URL = "https://github.com/mistermo-vibecode/VoicePlus/discussions/categories/ideas"
+private const val BUG_REPORT_URL = "https://github.com/mistermo-vibecode/VoicePlus/issues/new"

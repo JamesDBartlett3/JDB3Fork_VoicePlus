@@ -236,6 +236,12 @@ class LibrarySessionCallback(
       CustomCommand.ForceSeekToPrevious -> {
         player.forceSeekToPrevious()
       }
+      CustomCommand.SeekBack -> {
+        player.seekBack()
+      }
+      CustomCommand.SeekForward -> {
+        player.seekForward()
+      }
       is CustomCommand.SetSkipSilence -> {
         player.setSkipSilenceEnabled(command.skipSilence)
       }

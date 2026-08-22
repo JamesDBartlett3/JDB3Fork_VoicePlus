@@ -8,6 +8,7 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.Runs
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -25,12 +26,12 @@ import voice.core.common.DispatcherProvider
 import voice.core.data.Book
 import voice.core.data.BookContent
 import voice.core.data.BookId
-import voice.core.data.Bookmark
 import voice.core.data.Chapter
 import voice.core.data.ChapterId
 import voice.core.data.ListeningEventType
 import voice.core.data.MarkData
 import voice.core.data.repo.BookCharacterRepo
+import voice.core.data.repo.BookmarkRepo
 import voice.core.data.sleeptimer.SleepTimerPreference
 import voice.core.playback.CurrentBookResolver
 import voice.core.playback.LivePlaybackState
@@ -83,6 +84,7 @@ class BookPlayViewModelTest {
   private val currentBookResolver = mockk<CurrentBookResolver> {
     coEvery { book(book.id) } returns book
   }
+  private val bookmarkRepository = mockk<BookmarkRepo>(relaxed = true)
   private val viewModel = BookPlayViewModel(
     bookRepository = mockk {
       coEvery { get(book.id) } returns book
@@ -94,17 +96,7 @@ class BookPlayViewModelTest {
     playStateManager = playStateManager,
     currentBookStoreId = currentBookStoreId,
     navigator = mockk(),
-    bookmarkRepository = mockk {
-      coEvery { addBookmarkAtBookPosition(book, any(), any()) } returns Bookmark(
-        bookId = book.id,
-        chapterId = book.currentChapter.id,
-        addedAt = Instant.now(),
-        setBySleepTimer = true,
-        id = Bookmark.Id(UUID.randomUUID()),
-        time = 0L,
-        title = null,
-      )
-    },
+    bookmarkRepository = bookmarkRepository,
     characterRepo = mockk<BookCharacterRepo> {
       every { characterCount(any()) } returns flowOf(0)
     },
@@ -159,6 +151,9 @@ class BookPlayViewModelTest {
     yield()
     verify(exactly = 1) {
       sleepTimer.enable(TimedWithDuration(10.minutes))
+    }
+    coVerify(exactly = 0) {
+      bookmarkRepository.addBookmarkAtBookPosition(any(), any(), setBySleepTimer = true)
     }
   }
 

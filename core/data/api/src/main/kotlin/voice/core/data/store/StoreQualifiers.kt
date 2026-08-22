@@ -51,6 +51,9 @@ public annotation class MediaButtonTripleClickHandlerStore
 public annotation class LockscreenSliderModeStore
 
 @Qualifier
+public annotation class LockscreenSecondaryTextModeStore
+
+@Qualifier
 public annotation class ExperimentalPlaybackPersistenceStore
 
 @Qualifier

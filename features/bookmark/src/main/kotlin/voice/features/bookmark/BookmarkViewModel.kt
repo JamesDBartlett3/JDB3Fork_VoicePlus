@@ -1,7 +1,5 @@
 package voice.features.bookmark
 
-import android.content.Context
-import android.text.format.DateUtils
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -24,6 +22,7 @@ import voice.core.data.Bookmark
 import voice.core.data.Chapter
 import voice.core.data.ListeningEventType
 import voice.core.data.byMarkKey
+import voice.core.data.durationMs
 import voice.core.data.markForPosition
 import voice.core.data.repo.BookRepository
 import voice.core.data.repo.BookmarkRepo
@@ -32,14 +31,8 @@ import voice.core.data.store.CurrentBookStore
 import voice.core.playback.CurrentBookResolver
 import voice.core.playback.PlayerController
 import voice.core.playback.playstate.PlayStateManager
-import voice.core.strings.R
 import voice.core.ui.formatTime
 import voice.navigation.Navigator
-import java.time.Instant
-import java.time.temporal.ChronoUnit
-import kotlin.time.Duration.Companion.days
-import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.Duration.Companion.minutes
 
 @AssistedInject
 class BookmarkViewModel(
@@ -52,7 +45,6 @@ class BookmarkViewModel(
   private val playerController: PlayerController,
   private val currentBookResolver: CurrentBookResolver,
   private val navigator: Navigator,
-  private val context: Context,
   @Assisted
   private val bookId: BookId,
 ) : RetainedViewModel() {
@@ -98,39 +90,22 @@ class BookmarkViewModel(
           resolveChapterName(mark.name ?: "", chapterNameOffset, override)
             .ifBlank { currentChapter.name ?: "" }
         }
-        val title: String = when {
-          bookmark.setBySleepTimer -> {
-            val justNowThreshold = 1.minutes
-            if (ChronoUnit.MILLIS.between(bookmark.addedAt, Instant.now()).milliseconds < justNowThreshold) {
-              context.getString(R.string.bookmark_just_now)
-            } else {
-              DateUtils.getRelativeDateTimeString(
-                context,
-                bookmark.addedAt.toEpochMilli(),
-                justNowThreshold.inWholeMilliseconds,
-                2.days.inWholeMilliseconds,
-                0,
-              ).toString()
-            }
-          }
-          !bookmarkTitle.isNullOrEmpty() -> bookmarkTitle
-          else -> locationName
-        }
-
-        // A user title replaces the location as the headline, so surface the chapter
-        // in the subtitle to keep the bookmark locatable.
-        val positionText = formatTime(bookmark.time)
-        val subtitle = if (!bookmarkTitle.isNullOrEmpty() && locationName.isNotBlank()) {
-          "$locationName · $positionText"
-        } else {
-          positionText
-        }
+        val mark = currentChapter.markForPosition(bookmark.time)
+        val chapterPosition = (bookmark.time - mark.startMs).coerceAtLeast(0L)
+        val bookPosition = chapters.takeWhile { it.id != bookmark.chapterId }
+          .sumOf { it.duration } + bookmark.time
 
         BookmarkItemViewState(
-          title = title,
-          subtitle = subtitle,
+          title = bookmarkTitle?.takeIf { it.isNotBlank() } ?: locationName,
+          chapterPosition = formatTime(chapterPosition, mark.durationMs),
+          bookPosition = formatTime(bookPosition, chapters.sumOf { it.duration }),
+          addedAt = bookmark.addedAt,
+          type = when {
+            bookmark.setBySleepTimer -> BookmarkType.SleepTimer
+            bookmarkTitle.isNullOrBlank() -> BookmarkType.QuickBookmark
+            else -> BookmarkType.Manual
+          },
           id = bookmark.id,
-          showSleepIcon = bookmark.setBySleepTimer,
         )
       },
       shouldScrollTo = shouldScrollTo,

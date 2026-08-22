@@ -29,9 +29,11 @@ import voice.core.playback.player.VoicePlayer
 import voice.core.playback.player.onAudioSessionIdChanged
 import voice.core.playback.playstate.PlayStateDelegatingListener
 import voice.core.playback.playstate.PositionUpdater
+import voice.core.playback.session.CustomCommand
 import voice.core.playback.session.LibrarySessionCallback
-import voice.core.playback.session.LockscreenSliderPlayer
+import voice.core.playback.session.LockscreenPlayer
 import voice.core.playback.session.PlaybackService
+import voice.core.playback.session.toSessionCommand
 import voice.core.strings.R as StringsR
 
 @ContributesTo(PlaybackScope::class)
@@ -100,24 +102,24 @@ interface PlaybackModule {
   @SingleIn(PlaybackScope::class)
   fun session(
     service: PlaybackService,
-    player: LockscreenSliderPlayer,
+    player: LockscreenPlayer,
     callback: LibrarySessionCallback,
     mainActivityIntentProvider: MainActivityIntentProvider,
     context: Context,
   ): MediaLibraryService.MediaLibrarySession {
     return MediaLibraryService.MediaLibrarySession.Builder(service, player, callback)
       .setSessionActivity(mainActivityIntentProvider.toCurrentBook())
-      .setMediaButtonPreferences(
+      // Timed skips stay in the legacy custom layout so System UI retains the native
+      // previous/next actions used for chapter navigation.
+      .setCustomLayout(
         listOf(
           CommandButton.Builder(CommandButton.ICON_SKIP_BACK)
             .setDisplayName(context.getString(StringsR.string.rewind))
-            .setPlayerCommand(Player.COMMAND_SEEK_BACK)
-            .setSlots(CommandButton.SLOT_BACK)
+            .setSessionCommand(CustomCommand.SeekBack.toSessionCommand())
             .build(),
           CommandButton.Builder(CommandButton.ICON_SKIP_FORWARD)
             .setDisplayName(context.getString(StringsR.string.fast_forward))
-            .setPlayerCommand(Player.COMMAND_SEEK_FORWARD)
-            .setSlots(CommandButton.SLOT_FORWARD)
+            .setSessionCommand(CustomCommand.SeekForward.toSessionCommand())
             .build(),
         ),
       )

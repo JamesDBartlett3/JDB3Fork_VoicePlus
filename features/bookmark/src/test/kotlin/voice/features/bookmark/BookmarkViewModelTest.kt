@@ -120,7 +120,6 @@ class BookmarkViewModelTest {
         coEvery { this@mockk.book(bookId) } returns book
       },
       navigator = mockk(relaxed = true),
-      context = mockk(relaxed = true),
       bookId = bookId,
     )
   }
@@ -184,22 +183,60 @@ class BookmarkViewModelTest {
   }
 
   @Test
-  fun `titled bookmark shows chapter context in subtitle`() = runTest {
+  fun `titled bookmark is manual and shows explicit positions`() = runTest {
     val vm = viewModel(book(offset = 0), bookmarks = listOf(bookmark(title = "My Note")))
     backgroundScope.launchMolecule(RecompositionMode.Immediate) { vm.viewState() }.test {
       var state = awaitItem()
       while (state.bookmarks.none { it.title == "My Note" }) state = awaitItem()
-      assertEquals("Chapter 5 · 0:00", state.bookmarks.first().subtitle)
+      assertEquals(BookmarkType.Manual, state.bookmarks.first().type)
+      assertEquals("0:00", state.bookmarks.first().chapterPosition)
+      assertEquals("0:00", state.bookmarks.first().bookPosition)
     }
   }
 
   @Test
-  fun `untitled bookmark subtitle is position only`() = runTest {
+  fun `untitled bookmark is a quick bookmark`() = runTest {
     val vm = viewModel(book(offset = 0), bookmarks = listOf(bookmark(title = null)))
     backgroundScope.launchMolecule(RecompositionMode.Immediate) { vm.viewState() }.test {
       var state = awaitItem()
       while (state.bookmarks.none { it.title == "Chapter 5" }) state = awaitItem()
-      assertEquals("0:00", state.bookmarks.first().subtitle)
+      assertEquals(BookmarkType.QuickBookmark, state.bookmarks.first().type)
+      assertEquals("0:00", state.bookmarks.first().chapterPosition)
+      assertEquals("0:00", state.bookmarks.first().bookPosition)
+    }
+  }
+
+  @Test
+  fun `chapter position is relative to the containing chapter mark`() = runTest {
+    val baseBook = book(offset = 0)
+    val markedChapter = baseBook.chapters.single().copy(
+      duration = 120_000L,
+      markData = listOf(
+        MarkData(startMs = 0L, name = "Chapter 5"),
+        MarkData(startMs = 30_000L, name = "Chapter 6"),
+      ),
+    )
+    val mark = bookmark(title = null).copy(time = 45_000L)
+    val vm = viewModel(baseBook.copy(chapters = listOf(markedChapter)), bookmarks = listOf(mark))
+
+    backgroundScope.launchMolecule(RecompositionMode.Immediate) { vm.viewState() }.test {
+      var state = awaitItem()
+      while (state.bookmarks.isEmpty()) state = awaitItem()
+      assertEquals("0:15", state.bookmarks.first().chapterPosition)
+      assertEquals("0:45", state.bookmarks.first().bookPosition)
+    }
+  }
+
+  @Test
+  fun `historical sleep timer bookmark is clearly labelled`() = runTest {
+    val sleepBookmark = bookmark(title = null).copy(setBySleepTimer = true)
+    val vm = viewModel(book(offset = 0), bookmarks = listOf(sleepBookmark))
+
+    backgroundScope.launchMolecule(RecompositionMode.Immediate) { vm.viewState() }.test {
+      var state = awaitItem()
+      while (state.bookmarks.isEmpty()) state = awaitItem()
+      assertEquals(BookmarkType.SleepTimer, state.bookmarks.first().type)
+      assertEquals("Chapter 5", state.bookmarks.first().title)
     }
   }
 
@@ -245,7 +282,6 @@ class BookmarkViewModelTest {
       playerController = mockk(relaxed = true),
       currentBookResolver = mockk(relaxed = true),
       navigator = navigator,
-      context = mockk(relaxed = true),
       bookId = bookId,
     )
     backgroundScope.launchMolecule(RecompositionMode.Immediate) { vm.viewState() }.test {
@@ -282,7 +318,6 @@ class BookmarkViewModelTest {
         coEvery { book(bookId) } returns liveBook
       },
       navigator = mockk(relaxed = true),
-      context = mockk(relaxed = true),
       bookId = bookId,
     )
 
@@ -313,7 +348,6 @@ class BookmarkViewModelTest {
       playerController = mockk(relaxed = true),
       currentBookResolver = mockk(relaxed = true),
       navigator = mockk(relaxed = true),
-      context = mockk(relaxed = true),
       bookId = bookId,
     )
     vm.addBookmark("   ")

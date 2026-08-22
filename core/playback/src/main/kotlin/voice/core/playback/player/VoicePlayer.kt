@@ -13,6 +13,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import voice.core.common.resolveChapterName
 import voice.core.data.Book
 import voice.core.data.BookContent
 import voice.core.data.BookId
@@ -62,6 +63,7 @@ class VoicePlayer(
 ) : ForwardingPlayer(player) {
 
   private var currentBook: Book? = null
+  private var currentChapterNameOverrides = emptyMap<Pair<String, Long>, String>()
 
   init {
     player.addListener(
@@ -96,6 +98,11 @@ class VoicePlayer(
       mark = mark,
       number = book.chapters.take(chapterIndex).sumOf { it.chapterMarks.size } + markIndex + 1,
       total = book.chapters.sumOf { it.chapterMarks.size },
+      name = resolveChapterName(
+        rawName = mark.name.orEmpty(),
+        offset = book.content.chapterNameOffset,
+        override = currentChapterNameOverrides[Pair(chapter.id.value, mark.startMs)],
+      ),
     )
   }
 
@@ -166,12 +173,9 @@ class VoicePlayer(
 
   override fun getAvailableCommands(): Player.Commands {
     // On Android 13, the notification always shows the "skip to next" and "skip to previous"
-    // actions.
-    // However these are also used internally when seeking for example through a bluetooth headset
-    // We use these and delegate them to fast forward / rewind.
-    // The player however only advertises the seek to next and previous item in the case
-    // that it's not the first or last track. Therefore we manually advertise that these
-    // are available.
+    // actions. They are also used by Bluetooth headsets, so delegate them to chapter navigation.
+    // The player only advertises next/previous item at playlist boundaries when a neighbouring
+    // item exists. Advertise them consistently so the chapter controls remain visible.
     return super.getAvailableCommands()
       .buildUpon()
       .addAll(
@@ -184,19 +188,19 @@ class VoicePlayer(
   }
 
   override fun seekToPreviousMediaItem() {
-    seekBack()
+    forceSeekToPrevious()
   }
 
   override fun seekToNextMediaItem() {
-    seekForward()
+    forceSeekToNext()
   }
 
   override fun seekToPrevious() {
-    seekBack()
+    forceSeekToPrevious()
   }
 
   override fun seekToNext() {
-    seekForward()
+    forceSeekToNext()
   }
 
   override fun seekBack() {
@@ -353,7 +357,8 @@ class VoicePlayer(
         listeningEventRecorder.onBookSwitch(mediaId.id)
         val bookWithChapters = runBlocking {
           val book = repo.get(mediaId.id) ?: return@runBlocking null
-          book to mediaItemProvider.chapters(book)
+          currentChapterNameOverrides = mediaItemProvider.overrideMapFor(book.id)
+          book to mediaItemProvider.chapters(book, currentChapterNameOverrides)
         }
         if (bookWithChapters != null) {
           val (book, chapters) = bookWithChapters
@@ -455,6 +460,7 @@ internal data class CurrentChapterMarkInfo(
   val mark: ChapterMark,
   val number: Int,
   val total: Int,
+  val name: String,
 )
 
 private const val THRESHOLD_FOR_BACK_SEEK_MS = 2000

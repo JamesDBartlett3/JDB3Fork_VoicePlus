@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.AutoMode
@@ -157,7 +156,7 @@ internal fun ListeningLogScreen(
             EventCard(
               entry = entry,
               onClick = { onEntryClick(entry) },
-              modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+              modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
             )
           }
           item(key = "${group.dateLabel}_spacer") {
@@ -201,17 +200,17 @@ private fun EventCard(
 ) {
   Surface(
     modifier = modifier.fillMaxWidth(),
-    shape = RoundedCornerShape(12.dp),
+    shape = MaterialTheme.shapes.medium,
     tonalElevation = 2.dp,
   ) {
     Column(
       modifier = Modifier
         .clickable(onClick = onClick)
-        .padding(horizontal = 16.dp, vertical = 12.dp),
-      verticalArrangement = Arrangement.spacedBy(2.dp),
+        .padding(horizontal = 12.dp, vertical = 8.dp),
+      verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-      // Headline row: icon + event label
       Row(
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
       ) {
@@ -224,6 +223,7 @@ private fun EventCard(
               tint = MaterialTheme.colorScheme.primary,
             )
             Text(
+              modifier = Modifier.weight(1F),
               text = stringResource(StringsR.string.play),
               style = MaterialTheme.typography.titleSmall,
               fontWeight = FontWeight.Bold,
@@ -240,6 +240,7 @@ private fun EventCard(
               tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
+              modifier = Modifier.weight(1F),
               text = stringResource(StringsR.string.pause),
               style = MaterialTheme.typography.titleSmall,
               fontWeight = FontWeight.Bold,
@@ -254,40 +255,37 @@ private fun EventCard(
               tint = MaterialTheme.colorScheme.tertiary,
             )
             Text(
+              modifier = Modifier.weight(1F),
               text = stringResource(entry.type.labelRes()),
               style = MaterialTheme.typography.titleSmall,
               fontWeight = FontWeight.Bold,
             )
           }
         }
+        Text(
+          text = entry.timeLabel,
+          style = MaterialTheme.typography.labelMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
       }
 
-      // Chapter name
-      Text(
-        text = entry.chapterName,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-      )
-
-      // Bottom row: wall-clock time (left) + position / remaining (right)
       Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
       ) {
-        val timeLabel = when (entry) {
-          is ListeningLogEntry.Play -> entry.timeLabel
-          is ListeningLogEntry.Pause -> entry.timeLabel
-          is ListeningLogEntry.Transport -> ""
-        }
         Text(
-          text = timeLabel,
-          style = MaterialTheme.typography.bodySmall,
+          modifier = Modifier.weight(1F),
+          text = entry.chapterName,
+          style = MaterialTheme.typography.bodyMedium,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
         )
-        Column(horizontalAlignment = Alignment.End) {
+        Column(
+          modifier = Modifier.padding(start = 8.dp),
+          horizontalAlignment = Alignment.End,
+        ) {
           Text(
             text = entry.positionLabel,
             style = MaterialTheme.typography.bodySmall,

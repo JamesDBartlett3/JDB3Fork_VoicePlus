@@ -17,6 +17,12 @@ internal sealed interface CustomCommand {
   data object ForceSeekToPrevious : CustomCommand
 
   @Serializable
+  data object SeekBack : CustomCommand
+
+  @Serializable
+  data object SeekForward : CustomCommand
+
+  @Serializable
   data class SetSkipSilence(val skipSilence: Boolean) : CustomCommand
 
   @Serializable
@@ -41,10 +47,22 @@ internal sealed interface CustomCommand {
       if (command.customAction != CUSTOM_COMMAND_ACTION) {
         return null
       }
-      val json = args.getString(CUSTOM_COMMAND_EXTRA) ?: return null
+      val json = args.getString(CUSTOM_COMMAND_EXTRA)
+        ?: command.customExtras.getString(CUSTOM_COMMAND_EXTRA)
+        ?: return null
       return Json.decodeFromString(serializer(), json)
     }
   }
+}
+
+internal fun CustomCommand.toSessionCommand(): SessionCommand {
+  val json = Json.encodeToString(CustomCommand.serializer(), this)
+  return SessionCommand(
+    CustomCommand.CUSTOM_COMMAND_ACTION,
+    Bundle().apply {
+      putString(CustomCommand.CUSTOM_COMMAND_EXTRA, json)
+    },
+  )
 }
 
 internal fun MediaController.sendCustomCommand(command: CustomCommand) {

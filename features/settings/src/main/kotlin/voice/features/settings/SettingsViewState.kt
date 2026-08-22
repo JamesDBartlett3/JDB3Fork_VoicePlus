@@ -1,5 +1,6 @@
 package voice.features.settings
 
+import voice.core.data.LockscreenSecondaryTextMode
 import voice.core.data.LockscreenSliderMode
 import voice.core.data.MediaButtonClickAction
 import java.time.LocalTime
@@ -19,6 +20,7 @@ data class SettingsViewState(
   val mediaButtonDoubleClickAction: MediaButtonClickAction,
   val mediaButtonTripleClickAction: MediaButtonClickAction,
   val lockscreenSliderMode: LockscreenSliderMode,
+  val lockscreenSecondaryTextMode: LockscreenSecondaryTextMode,
   val experimentalPlaybackPersistenceEnabled: Boolean,
   val sleepTimerAutoResetEnabled: Boolean,
   val ignoreFileTags: Boolean,
@@ -31,6 +33,7 @@ data class SettingsViewState(
     data object MediaButtonDoubleClickAction : Dialog
     data object MediaButtonTripleAction : Dialog
     data object LockscreenSliderMode : Dialog
+    data object LockscreenSecondaryTextMode : Dialog
     data object SleepTimerAutoResetInfo : Dialog
     data object ExperimentalPlaybackPersistenceInfo : Dialog
     data object IgnoreFileTagsInfo : Dialog
@@ -52,6 +55,7 @@ data class SettingsViewState(
         mediaButtonDoubleClickAction = MediaButtonClickAction.SKIP_FORWARD,
         mediaButtonTripleClickAction = MediaButtonClickAction.SKIP_BACKWARD,
         lockscreenSliderMode = LockscreenSliderMode.CHAPTER,
+        lockscreenSecondaryTextMode = LockscreenSecondaryTextMode.CHAPTER,
         experimentalPlaybackPersistenceEnabled = false,
         sleepTimerAutoResetEnabled = true,
         ignoreFileTags = false,
