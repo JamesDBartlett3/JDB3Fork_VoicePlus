@@ -1,6 +1,9 @@
 # VoicePlus stress test — local only, never commit
 app/src/androidTest/kotlin/voice/app/VoicePlusStressTest.kt
 
+# Personal listening-history recovery tool — local only, never commit
+scripts/reconstruct_listening_history.py
+
 *.iml
 *.apk
 *.stackdump
