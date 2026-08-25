@@ -25,28 +25,49 @@ class ListeningStatsTest {
     durationMinutes: Long,
     startMinute: Int = 0,
     bookId: BookId = BookId("content://book"),
+    chapterId: ChapterId = ChapterId("content://chapter"),
+    endPositionMs: Long? = null,
   ): ListeningSession {
     val start = date.atTime(startHour, startMinute).atZone(zone).toInstant()
     val durationMs = durationMinutes * 60_000
     return ListeningSession(
       bookId = bookId,
-      chapterId = ChapterId("content://chapter"),
+      chapterId = chapterId,
       startedAt = start,
       endedAt = start.plusMillis(durationMs),
-      durationMs = durationMs,
       startPositionMs = 0,
-      endPositionMs = durationMs,
+      endPositionMs = endPositionMs ?: durationMs,
+      durationMs = durationMs,
     )
   }
 
+  private fun book(
+    id: String,
+    name: String = id,
+    isCompleted: Boolean = false,
+    lastChapter: ChapterId? = null,
+    lastChapterDurationMs: Long = 0L,
+  ) = LibraryBookInfo(
+    id = BookId(id),
+    name = name,
+    cover = null,
+    isCompleted = isCompleted,
+    lastChapter = lastChapter,
+    lastChapterDurationMs = lastChapterDurationMs,
+  )
+
+  private val defaultBooks = listOf(
+    book("content://book", name = "The book", isCompleted = true),
+    book("content://other"),
+    book("content://third"),
+  )
+
   private fun stats(
     sessions: List<ListeningSession>,
-    bookNames: Map<BookId, String> = emptyMap(),
+    books: List<LibraryBookInfo> = defaultBooks,
   ) = computeStats(
     sessions = sessions,
-    librarySize = 3,
-    booksCompleted = 1,
-    bookNames = bookNames,
+    books = books,
     zone = zone,
     today = today,
     locale = Locale.UK,
@@ -109,9 +130,9 @@ class ListeningStatsTest {
       chapterId = ChapterId("content://chapter"),
       startedAt = start,
       endedAt = start.plusMillis(durationMs),
-      durationMs = durationMs,
       startPositionMs = 0,
       endPositionMs = durationMs,
+      durationMs = durationMs,
     )
     val totals = dailyTotals(listOf(session), zone)
     totals.values.sum() shouldBe durationMs
@@ -139,26 +160,12 @@ class ListeningStatsTest {
   }
 
   @Test
-  fun `average per day divides by days since the first session, not by days listened`() {
-    val sessions = listOf(
-      session(today.minusDays(3), startHour = 10, durationMinutes = 60),
-      session(today, startHour = 10, durationMinutes = 60),
-    )
-    // 120 minutes over the 4 days since the first session.
-    stats(sessions).avgDailyMs shouldBe 30 * 60_000L
-  }
-
-  @Test
-  fun `active days and average session use the recent calendar window and recorded sessions`() {
+  fun `average session divides the total by the number of recorded sessions`() {
     val sessions = listOf(
       session(today, startHour = 10, durationMinutes = 30),
       session(today.minusDays(2), startHour = 10, durationMinutes = 90),
-      session(today.minusDays(30), startHour = 10, durationMinutes = 60),
     )
-    val result = stats(sessions)
-
-    result.activeDaysLast30 shouldBe 2
-    result.avgSessionMs shouldBe 60 * 60_000L
+    stats(sessions).avgSessionMs shouldBe 60 * 60_000L
   }
 
   @Test
@@ -170,39 +177,163 @@ class ListeningStatsTest {
   }
 
   @Test
-  fun `top book is the available library book with the most listening time`() {
+  fun `finished books carry their listening time and last-session date, newest first`() {
     val first = BookId("content://first")
     val second = BookId("content://second")
+    val books = listOf(
+      book("content://first", name = "First book", isCompleted = true),
+      book("content://second", name = "Second book", isCompleted = true),
+      book("content://third", name = "Unfinished"),
+    )
     val sessions = listOf(
-      session(today, startHour = 9, durationMinutes = 20, bookId = first),
+      session(today.minusDays(10), startHour = 9, durationMinutes = 20, bookId = first),
       session(today, startHour = 10, durationMinutes = 40, bookId = second),
-      session(today, startHour = 11, durationMinutes = 30, bookId = second),
+      session(today.minusDays(1), startHour = 11, durationMinutes = 30, bookId = second),
     )
 
-    stats(sessions, mapOf(first to "First book", second to "Second book")).topBook shouldBe TopBookStats(
-      bookId = second,
-      name = "Second book",
-      durationMs = 70 * 60_000L,
-    )
+    val finished = stats(sessions, books).finishedBooks
+    finished.map { it.name } shouldBe listOf("Second book", "First book")
+    finished[0].listenedMs shouldBe 70 * 60_000L
+    finished[0].finishedDate shouldBe today
+    finished[1].listenedMs shouldBe 20 * 60_000L
   }
 
   @Test
-  fun `no sessions yields an empty view state that still reports library counts`() {
+  fun `a book finished before session tracking existed shows without duration or date, after dated ones`() {
+    val tracked = BookId("content://tracked")
+    val books = listOf(
+      book("content://tracked", name = "Tracked", isCompleted = true),
+      book("content://legacy", name = "Legacy", isCompleted = true),
+    )
+    val sessions = listOf(session(today, startHour = 10, durationMinutes = 30, bookId = tracked))
+
+    val finished = stats(sessions, books).finishedBooks
+    finished.map { it.name } shouldBe listOf("Tracked", "Legacy")
+    finished[1].listenedMs shouldBe 0L
+    finished[1].finishedDate shouldBe null
+    finished[1].finishedDateLabel shouldBe null
+  }
+
+  @Test
+  fun `a re-listen that stops mid-book does not bump the finish date`() {
+    // Finished in March (the session reaches the end of the last chapter); re-listened in August but
+    // stopped mid-book. The shelf must keep the March finish date, not jump to August. The book's
+    // chapter is a tree-grant URI while the sessions recorded a plain document URI for the same file —
+    // completion matching must bridge the two shapes via the document path.
+    val auth = "content://com.android.externalstorage.documents"
+    val bid = BookId("$auth/tree/primary%3AAudiobooks/document/primary%3AAudiobooks%2FBook")
+    val treeChapter = ChapterId("$auth/tree/primary%3AAudiobooks/document/primary%3AAudiobooks%2FBook%2Ffile.m4b")
+    val plainChapter = ChapterId("$auth/document/primary%3AAudiobooks%2FBook%2Ffile.m4b")
+    val books = listOf(
+      book(
+        bid.value,
+        name = "The book",
+        isCompleted = true,
+        lastChapter = treeChapter,
+        lastChapterDurationMs = 60 * 60_000L,
+      ),
+    )
+    val finishDay = LocalDate.of(2026, 3, 20)
+    val sessions = listOf(
+      // ends at 60m = chapter end
+      session(finishDay, startHour = 20, durationMinutes = 60, bookId = bid, chapterId = plainChapter),
+      // re-listen, stops mid-book
+      session(today, startHour = 10, durationMinutes = 30, bookId = bid, chapterId = plainChapter),
+    )
+
+    val result = stats(sessions, books).finishedBooks.single()
+    result.finishedDate shouldBe finishDay
+    result.listenedMs shouldBe 90 * 60_000L
+  }
+
+  @Test
+  fun `orphan sessions are attributed to the deepest library book containing their document path`() {
+    // The scanner has since re-keyed the file into a folder book; sessions recorded against the old
+    // file-level id must follow the content, and the nested Book 3 folder must beat the parent folder.
+    val base = "content://com.android.externalstorage.documents/tree/primary%3AAudiobooks/document/"
+    val parent = base + "primary%3AAudiobooks%2FDCC"
+    val folderBook = base + "primary%3AAudiobooks%2FDCC%2FBook%203"
+    val deadFileId = base + "primary%3AAudiobooks%2FDCC%2FBook%203%2Fbook.m4b"
+    val books = listOf(
+      book(parent, name = "DCC omnibus", isCompleted = true),
+      book(folderBook, name = "Book 3", isCompleted = true),
+    )
+    val sessions = listOf(session(today, startHour = 10, durationMinutes = 60, bookId = BookId(deadFileId)))
+
+    val finished = stats(sessions, books).finishedBooks
+    finished.single { it.name == "Book 3" }.listenedMs shouldBe 60 * 60_000L
+    finished.single { it.name == "DCC omnibus" }.listenedMs shouldBe 0L
+  }
+
+  @Test
+  fun `a short outro chapter does not make every touch of it count as finishing`() {
+    // Threshold "duration - 60s" would be negative for a 30s outro; the guard requires at least
+    // half the chapter, so a 3-second August touch cannot re-date a March finish.
+    val bid = BookId("content://book")
+    val books = listOf(
+      book(
+        "content://book",
+        name = "The book",
+        isCompleted = true,
+        lastChapter = ChapterId("content://chapter"),
+        lastChapterDurationMs = 30_000L,
+      ),
+    )
+    val finishDay = LocalDate.of(2026, 3, 20)
+    val sessions = listOf(
+      session(finishDay, startHour = 20, durationMinutes = 1, bookId = bid, endPositionMs = 25_000), // real finish
+      session(today, startHour = 10, durationMinutes = 1, bookId = bid, endPositionMs = 3_000), // brief touch
+    )
+
+    stats(sessions, books).finishedBooks.single().finishedDate shouldBe finishDay
+  }
+
+  @Test
+  fun `hours on a non-completed duplicate identity still show on the completed copy's entry`() {
+    val historyHolder = BookId("content://history-holder")
+    val books = listOf(
+      book("content://completed-copy", name = "Same Book", isCompleted = true),
+      book("content://history-holder", name = "Same Book"),
+    )
+    val sessions = listOf(session(today, startHour = 10, durationMinutes = 45, bookId = historyHolder))
+
+    val entry = stats(sessions, books).finishedBooks.single()
+    entry.name shouldBe "Same Book"
+    entry.listenedMs shouldBe 45 * 60_000L
+    entry.finishedDate shouldBe today
+  }
+
+  @Test
+  fun `duplicate library copies of the same title collapse to the copy with the listening history`() {
+    val listened = BookId("content://listened")
+    val books = listOf(
+      book("content://listened", name = "Same Book", isCompleted = true),
+      book("content://bare-copy", name = "Same Book", isCompleted = true),
+    )
+    val sessions = listOf(session(today, startHour = 10, durationMinutes = 30, bookId = listened))
+
+    val finished = stats(sessions, books).finishedBooks
+    finished.map { it.name } shouldBe listOf("Same Book")
+    finished.single().bookId shouldBe listened
+    finished.single().listenedMs shouldBe 30 * 60_000L
+  }
+
+  @Test
+  fun `no sessions yields an empty view state that still reports library counts and finished books`() {
     val result = stats(emptyList())
-    result shouldBe ListeningStatsViewState.Empty.copy(booksInLibrary = 3, booksCompleted = 1)
+    result.booksInLibrary shouldBe 3
+    result.booksCompleted shouldBe 1
+    result.finishedBooks.map { it.name } shouldBe listOf("The book")
     result.currentStreak shouldBe 0
-    result.dailyData shouldBe emptyList()
+    result.monthlyData shouldBe emptyList()
   }
 
   @Test
-  fun `charts cover the trailing 30 days, 12 weeks and 12 months ending today`() {
+  fun `the chart covers the trailing 12 months ending today`() {
     val result = stats(listOf(session(today, startHour = 10, durationMinutes = 15)))
-    result.dailyData.size shouldBe 30
-    result.weeklyData.size shouldBe 12
     result.monthlyData.size shouldBe 12
-    // The final daily bucket is today and carries today's listening.
-    result.dailyData.last().valueMs shouldBe 15 * 60_000L
-    result.dailyData.dropLast(1).sumOf { it.valueMs } shouldBe 0L
+    result.monthlyData.last().valueMs shouldBe 15 * 60_000L
+    result.monthlyData.dropLast(1).sumOf { it.valueMs } shouldBe 0L
   }
 
   @Test
@@ -215,6 +346,17 @@ class ListeningStatsTest {
     // Twelve trailing months ends at Aug 2026; Aug 2025 is outside it, so only this year's 30m shows.
     result.monthlyData.last().valueMs shouldBe 30 * 60_000L
     result.thisMonthMs shouldBe 30 * 60_000L
+  }
+
+  @Test
+  fun `the biggest month is a lifetime record, not limited to the chart window`() {
+    val sessions = listOf(
+      session(LocalDate.of(2024, 3, 10), startHour = 10, durationMinutes = 300), // outside the 12-month chart
+      session(today, startHour = 10, durationMinutes = 30),
+    )
+    val result = stats(sessions)
+    result.biggestMonthMs shouldBe 300 * 60_000L
+    result.biggestMonthLabel shouldBe "March 2024"
   }
 
   @Test

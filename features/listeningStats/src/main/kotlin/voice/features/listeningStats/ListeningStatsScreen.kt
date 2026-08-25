@@ -20,7 +20,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material3.Card
@@ -29,28 +28,21 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.retain.retain
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -61,6 +53,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavEntry
+import coil.compose.AsyncImage
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.IntoSet
@@ -70,6 +63,7 @@ import voice.core.data.BookId
 import voice.navigation.Destination
 import voice.navigation.NavEntryProvider
 import voice.core.strings.R as StringsR
+import voice.core.ui.R as UiR
 
 @ContributesTo(AppScope::class)
 interface ListeningStatsGraph {
@@ -101,13 +95,6 @@ fun ListeningStatsScreen() {
   )
 }
 
-private enum class StatsRange {
-  Daily,
-  Weekly,
-  Monthly,
-  AllTime,
-}
-
 @Composable
 internal fun ListeningStatsScreen(
   viewState: ListeningStatsViewState,
@@ -115,8 +102,6 @@ internal fun ListeningStatsScreen(
   onBookClick: (BookId) -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  var selectedRange by remember { mutableStateOf(StatsRange.Weekly) }
-
   Scaffold(
     modifier = modifier,
     topBar = {
@@ -162,25 +147,18 @@ internal fun ListeningStatsScreen(
           .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
       ) {
-        RangeSelector(
-          selectedRange = selectedRange,
-          onRangeSelect = { selectedRange = it },
-        )
-
         if (viewState.totalLifetimeMs > 0L) {
-          RangeSummary(viewState, selectedRange)
-          ListeningActivity(
-            viewState = viewState,
-            selectedRange = selectedRange,
+          TotalListening(viewState)
+          Recently(viewState)
+          LastTwelveMonths(viewState)
+          Records(viewState)
+        }
+
+        if (viewState.finishedBooks.isNotEmpty()) {
+          FinishedBooks(
+            books = viewState.finishedBooks,
+            onBookClick = onBookClick,
           )
-          HighlightsSection(viewState)
-          viewState.topBook?.let { topBook ->
-            MostListenedBook(
-              topBook = topBook,
-              onClick = { onBookClick(topBook.bookId) },
-            )
-          }
-          AdditionalStats(viewState)
         }
 
         if (viewState.booksInLibrary > 0) {
@@ -206,105 +184,125 @@ internal fun ListeningStatsScreen(
 }
 
 @Composable
-private fun RangeSelector(
-  selectedRange: StatsRange,
-  onRangeSelect: (StatsRange) -> Unit,
+private fun TotalListening(viewState: ListeningStatsViewState) {
+  val totalMs = viewState.totalLifetimeMs
+  val days = totalMs / 86_400_000
+  val hours = (totalMs % 86_400_000) / 3_600_000
+  val minutes = (totalMs % 3_600_000) / 60_000
+
+  Column {
+    Text(
+      text = stringResource(StringsR.string.listening_stats_total_lifetime),
+      style = MaterialTheme.typography.titleSmall,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Row(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(top = 10.dp),
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+      UnitTile(days.toString(), stringResource(StringsR.string.listening_stats_unit_days), Modifier.weight(1f))
+      UnitTile(hours.toString(), stringResource(StringsR.string.listening_stats_unit_hours), Modifier.weight(1f))
+      UnitTile(minutes.toString(), stringResource(StringsR.string.listening_stats_unit_minutes), Modifier.weight(1f))
+    }
+    Text(
+      text = formatDuration(totalMs),
+      style = MaterialTheme.typography.labelLarge,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(top = 10.dp),
+      textAlign = TextAlign.Center,
+    )
+  }
+}
+
+@Composable
+private fun UnitTile(
+  value: String,
+  unit: String,
+  modifier: Modifier = Modifier,
 ) {
-  SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-    StatsRange.entries.forEachIndexed { index, range ->
-      SegmentedButton(
-        selected = selectedRange == range,
-        onClick = { onRangeSelect(range) },
-        shape = SegmentedButtonDefaults.itemShape(index = index, count = StatsRange.entries.size),
-        label = {
-          Text(
-            text = range.label(),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-          )
-        },
+  Card(
+    modifier = modifier,
+    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    shape = MaterialTheme.shapes.large,
+  ) {
+    Column(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(vertical = 14.dp),
+      horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+      Text(
+        text = value,
+        style = MaterialTheme.typography.displaySmall,
+        color = MaterialTheme.colorScheme.primary,
+      )
+      Text(
+        text = unit,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 2.dp),
       )
     }
   }
 }
 
 @Composable
-private fun RangeSummary(
-  viewState: ListeningStatsViewState,
-  selectedRange: StatsRange,
-) {
-  val label = when (selectedRange) {
-    StatsRange.Daily -> stringResource(StringsR.string.listening_stats_today)
-    StatsRange.Weekly -> stringResource(StringsR.string.listening_stats_this_week)
-    StatsRange.Monthly -> stringResource(StringsR.string.listening_stats_this_month)
-    StatsRange.AllTime -> stringResource(StringsR.string.listening_stats_total_lifetime)
-  }
-  val total = when (selectedRange) {
-    StatsRange.Daily -> viewState.todayMs
-    StatsRange.Weekly -> viewState.thisWeekMs
-    StatsRange.Monthly -> viewState.thisMonthMs
-    StatsRange.AllTime -> viewState.totalLifetimeMs
-  }
-
-  Column(modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp)) {
-    Text(
-      text = label,
-      style = MaterialTheme.typography.titleSmall,
-      color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    Text(
-      text = formatDuration(total),
-      style = MaterialTheme.typography.displaySmall,
-      modifier = Modifier.padding(top = 2.dp),
-    )
-    if (selectedRange == StatsRange.Weekly) {
-      viewState.weekChangePercent?.let { change ->
-        Text(
-          text = weekChangeLabel(change),
-          style = MaterialTheme.typography.labelLarge,
-          color = MaterialTheme.colorScheme.primary,
-          modifier = Modifier.padding(top = 8.dp),
-        )
-      }
+private fun Recently(viewState: ListeningStatsViewState) {
+  Column {
+    SectionTitle(stringResource(StringsR.string.listening_stats_recently))
+    StatsCard {
+      StatRow(stringResource(StringsR.string.listening_stats_today), formatDuration(viewState.todayMs))
+      RowDivider()
+      StatRow(
+        label = stringResource(StringsR.string.listening_stats_this_week),
+        value = formatDuration(viewState.thisWeekMs),
+        supporting = viewState.weekChangePercent?.let { change ->
+          when {
+            change > 0 -> stringResource(StringsR.string.listening_stats_week_delta_more, change)
+            change < 0 -> stringResource(StringsR.string.listening_stats_week_delta_less, -change)
+            else -> null
+          }
+        },
+      )
+      RowDivider()
+      StatRow(stringResource(StringsR.string.listening_stats_this_month), formatDuration(viewState.thisMonthMs))
     }
   }
 }
 
 @Composable
-private fun ListeningActivity(
-  viewState: ListeningStatsViewState,
-  selectedRange: StatsRange,
-) {
-  val data = when (selectedRange) {
-    StatsRange.Daily -> viewState.dailyData.takeLast(7)
-    StatsRange.Weekly -> viewState.weeklyData.takeLast(6)
-    StatsRange.Monthly -> viewState.monthlyData.takeLast(6)
-    StatsRange.AllTime -> viewState.monthlyData
-  }
-  var selectedIndex by remember(selectedRange, data) { mutableIntStateOf(data.lastIndex.coerceAtLeast(0)) }
+private fun LastTwelveMonths(viewState: ListeningStatsViewState) {
+  val data = viewState.monthlyData
+  if (data.isEmpty()) return
+  // Not keyed on data: a session closing while the screen is open changes the current month's value
+  // and must not snap the selection away from the bar the user is inspecting.
+  var selectedIndex by remember { mutableIntStateOf(data.lastIndex) }
+  val selectedPoint = data[selectedIndex.coerceIn(0, data.lastIndex)]
 
-  Card(
-    modifier = Modifier.fillMaxWidth(),
-    colors = CardDefaults.cardColors(
-      containerColor = MaterialTheme.colorScheme.primaryContainer,
-      contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-    ),
-    shape = MaterialTheme.shapes.extraLarge,
-  ) {
-    Column(modifier = Modifier.padding(16.dp)) {
-      if (data.isNotEmpty()) {
-        val selectedPoint = data[selectedIndex]
+  Column {
+    SectionTitle(stringResource(StringsR.string.listening_stats_last_12_months))
+    Card(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(top = 8.dp),
+      colors = CardDefaults.cardColors(
+        containerColor = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+      ),
+      shape = MaterialTheme.shapes.extraLarge,
+    ) {
+      Column(modifier = Modifier.padding(16.dp)) {
         Row(
           modifier = Modifier.fillMaxWidth(),
           horizontalArrangement = Arrangement.SpaceBetween,
           verticalAlignment = Alignment.CenterVertically,
         ) {
           Text(
-            text = if (selectedRange == StatsRange.AllTime) {
-              stringResource(StringsR.string.listening_stats_last_12_months)
-            } else {
-              stringResource(StringsR.string.listening_stats_activity)
-            },
+            text = stringResource(StringsR.string.listening_stats_activity),
             style = MaterialTheme.typography.titleSmall,
           )
           Text(
@@ -324,29 +322,9 @@ private fun ListeningActivity(
           onSelect = { selectedIndex = it },
           modifier = Modifier.padding(top = 16.dp),
         )
-      } else {
-        Text(
-          text = stringResource(StringsR.string.listening_stats_no_data),
-          style = MaterialTheme.typography.bodyMedium,
-        )
       }
     }
   }
-}
-
-@Composable
-private fun StatsRange.label(): String = when (this) {
-  StatsRange.Daily -> stringResource(StringsR.string.listening_stats_daily_chart)
-  StatsRange.Weekly -> stringResource(StringsR.string.listening_stats_weekly_chart)
-  StatsRange.Monthly -> stringResource(StringsR.string.listening_stats_monthly_chart)
-  StatsRange.AllTime -> stringResource(StringsR.string.listening_stats_all_time)
-}
-
-@Composable
-private fun weekChangeLabel(change: Int): String = when {
-  change > 0 -> stringResource(StringsR.string.listening_stats_week_more, change)
-  change < 0 -> stringResource(StringsR.string.listening_stats_week_less, -change)
-  else -> stringResource(StringsR.string.listening_stats_week_same)
 }
 
 @Composable
@@ -361,7 +339,7 @@ private fun InteractiveBarChart(
   Row(
     modifier = modifier
       .fillMaxWidth()
-      .height(184.dp),
+      .height(160.dp),
     horizontalArrangement = Arrangement.spacedBy(4.dp),
   ) {
     data.forEachIndexed { index, point ->
@@ -398,19 +376,29 @@ private fun InteractiveBarChart(
             .fillMaxWidth(),
           contentAlignment = Alignment.BottomCenter,
         ) {
-          Box(
-            modifier = Modifier
-              .fillMaxWidth(0.58f)
-              .fillMaxHeight(heightFraction)
-              .clip(MaterialTheme.shapes.extraLarge)
-              .background(
-                if (selected) {
-                  MaterialTheme.colorScheme.primary
-                } else {
-                  MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.3f)
-                },
-              ),
-          )
+          if (point.valueMs == 0L) {
+            // A month without listening is a dot, not a stub bar pretending to be data.
+            Box(
+              modifier = Modifier
+                .size(5.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.3f)),
+            )
+          } else {
+            Box(
+              modifier = Modifier
+                .fillMaxWidth(0.58f)
+                .fillMaxHeight(heightFraction)
+                .clip(MaterialTheme.shapes.extraLarge)
+                .background(
+                  if (selected) {
+                    MaterialTheme.colorScheme.primary
+                  } else {
+                    MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.3f)
+                  },
+                ),
+            )
+          }
         }
         Text(
           text = point.label,
@@ -430,120 +418,151 @@ private fun InteractiveBarChart(
 }
 
 @Composable
-private fun HighlightsSection(viewState: ListeningStatsViewState) {
+private fun Records(viewState: ListeningStatsViewState) {
   Column {
-    SectionTitle(stringResource(StringsR.string.listening_stats_highlights))
-    Row(
-      modifier = Modifier
-        .fillMaxWidth()
-        .padding(top = 8.dp, bottom = 4.dp),
-      verticalAlignment = Alignment.CenterVertically,
-    ) {
-      Highlight(
-        value = viewState.activeDaysLast30.toString(),
-        label = stringResource(StringsR.string.listening_stats_active_days_label),
-        modifier = Modifier.weight(1f),
+    SectionTitle(stringResource(StringsR.string.listening_stats_records))
+    StatsCard {
+      StatRow(
+        label = stringResource(StringsR.string.listening_stats_longest_streak),
+        value = pluralStringResource(
+          StringsR.plurals.listening_stats_streak_days,
+          viewState.longestStreak,
+          viewState.longestStreak,
+        ),
+        badge = stringResource(StringsR.string.listening_stats_streak_now)
+          .takeIf { viewState.currentStreak == viewState.longestStreak && viewState.currentStreak > 0 },
       )
-      HighlightDivider()
-      Highlight(
-        value = formatDuration(viewState.avgSessionMs),
-        label = stringResource(StringsR.string.listening_stats_avg_session),
-        modifier = Modifier.weight(1f),
+      if (viewState.currentStreak != viewState.longestStreak) {
+        RowDivider()
+        StatRow(
+          label = stringResource(StringsR.string.listening_stats_current_streak),
+          value = pluralStringResource(
+            StringsR.plurals.listening_stats_streak_days,
+            viewState.currentStreak,
+            viewState.currentStreak,
+          ),
+        )
+      }
+      RowDivider()
+      StatRow(
+        label = stringResource(StringsR.string.listening_stats_longest_day),
+        value = if (viewState.longestDayMs > 0 && viewState.longestDayLabel != null) {
+          stringResource(
+            StringsR.string.listening_stats_selected_period,
+            formatDuration(viewState.longestDayMs),
+            viewState.longestDayLabel,
+          )
+        } else {
+          "—"
+        },
       )
-      HighlightDivider()
-      Highlight(
-        value = viewState.bestDayOfWeek ?: "—",
+      RowDivider()
+      StatRow(
+        label = stringResource(StringsR.string.listening_stats_biggest_month),
+        value = if (viewState.biggestMonthMs > 0 && viewState.biggestMonthLabel != null) {
+          stringResource(
+            StringsR.string.listening_stats_selected_period,
+            formatDuration(viewState.biggestMonthMs),
+            viewState.biggestMonthLabel,
+          )
+        } else {
+          "—"
+        },
+      )
+      RowDivider()
+      StatRow(
         label = stringResource(StringsR.string.listening_stats_best_day_of_week),
-        modifier = Modifier.weight(1f),
+        value = viewState.bestDayOfWeek ?: "—",
+      )
+      RowDivider()
+      StatRow(
+        label = stringResource(StringsR.string.listening_stats_avg_session),
+        value = formatDuration(viewState.avgSessionMs),
       )
     }
   }
 }
 
 @Composable
-private fun Highlight(
-  value: String,
-  label: String,
-  modifier: Modifier = Modifier,
-) {
-  Column(
-    modifier = modifier.padding(horizontal = 8.dp),
-    horizontalAlignment = Alignment.CenterHorizontally,
-  ) {
-    Text(
-      text = value,
-      style = MaterialTheme.typography.titleMedium,
-      textAlign = TextAlign.Center,
-      maxLines = 1,
-      overflow = TextOverflow.Ellipsis,
-    )
-    Text(
-      text = label,
-      style = MaterialTheme.typography.labelSmall,
-      color = MaterialTheme.colorScheme.onSurfaceVariant,
-      textAlign = TextAlign.Center,
-      modifier = Modifier.padding(top = 2.dp),
-    )
-  }
-}
-
-@Composable
-private fun HighlightDivider() {
-  VerticalDivider(
-    modifier = Modifier.height(48.dp),
-    color = MaterialTheme.colorScheme.outlineVariant,
-  )
-}
-
-@Composable
-private fun MostListenedBook(
-  topBook: TopBookStats,
-  onClick: () -> Unit,
+private fun FinishedBooks(
+  books: List<FinishedBookStats>,
+  onBookClick: (BookId) -> Unit,
 ) {
   Column {
-    SectionTitle(stringResource(StringsR.string.listening_stats_most_listened))
+    SectionTitle(stringResource(StringsR.string.listening_stats_finished))
     Card(
-      onClick = onClick,
       modifier = Modifier
         .fillMaxWidth()
         .padding(top = 8.dp),
-      colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+      colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
       shape = MaterialTheme.shapes.large,
     ) {
-      ListItem(
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        leadingContent = {
-          Surface(
-            modifier = Modifier.size(48.dp),
-            shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-          ) {
-            Box(contentAlignment = Alignment.Center) {
-              Icon(Icons.AutoMirrored.Outlined.MenuBook, contentDescription = null)
-            }
+      Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp)) {
+        books.forEachIndexed { index, book ->
+          if (index > 0) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
           }
-        },
-        headlineContent = {
-          Text(
-            text = topBook.name,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+          FinishedBookRow(
+            book = book,
+            onClick = { onBookClick(book.bookId) },
           )
-        },
-        supportingContent = {
-          Text(
-            text = stringResource(
-              StringsR.string.listening_stats_most_listened_duration,
-              formatDuration(topBook.durationMs),
-            ),
-          )
-        },
-        trailingContent = {
-          Icon(Icons.Outlined.ChevronRight, contentDescription = null)
-        },
-      )
+        }
+      }
     }
+  }
+}
+
+@Composable
+private fun FinishedBookRow(
+  book: FinishedBookStats,
+  onClick: () -> Unit,
+) {
+  Row(
+    modifier = Modifier
+      .fillMaxWidth()
+      .clickable(onClick = onClick)
+      .padding(vertical = 10.dp),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    AsyncImage(
+      modifier = Modifier
+        .size(width = 42.dp, height = 58.dp)
+        .clip(MaterialTheme.shapes.small),
+      model = book.cover?.file,
+      placeholder = painterResource(id = UiR.drawable.album_art),
+      error = painterResource(id = UiR.drawable.album_art),
+      contentScale = ContentScale.Crop,
+      contentDescription = null,
+    )
+    Column(
+      modifier = Modifier
+        .weight(1f)
+        .padding(horizontal = 12.dp),
+    ) {
+      Text(
+        text = book.name,
+        style = MaterialTheme.typography.bodyMedium,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+      )
+      val meta = listOfNotNull(
+        formatDuration(book.listenedMs).takeIf { book.listenedMs > 0 },
+        book.finishedDateLabel,
+      ).joinToString(" · ")
+      if (meta.isNotEmpty()) {
+        Text(
+          text = meta,
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          modifier = Modifier.padding(top = 2.dp),
+        )
+      }
+    }
+    Icon(
+      Icons.Outlined.ChevronRight,
+      contentDescription = null,
+      tint = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
   }
 }
 
@@ -595,52 +614,22 @@ private fun LibraryProgress(viewState: ListeningStatsViewState) {
 }
 
 @Composable
-private fun AdditionalStats(viewState: ListeningStatsViewState) {
-  Column {
-    SectionTitle(stringResource(StringsR.string.listening_stats_more_insights))
-    Card(
-      modifier = Modifier
-        .fillMaxWidth()
-        .padding(top = 8.dp),
-      colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-      shape = MaterialTheme.shapes.large,
-    ) {
-      Column(modifier = Modifier.padding(16.dp)) {
-        InsightRow(stringResource(StringsR.string.listening_stats_avg_daily), formatDuration(viewState.avgDailyMs))
-        InsightDivider()
-        InsightRow(
-          stringResource(StringsR.string.listening_stats_longest_day),
-          if (viewState.longestDayMs > 0) {
-            "${formatDuration(viewState.longestDayMs)} · ${viewState.longestDayLabel}"
-          } else {
-            "—"
-          },
-        )
-        InsightDivider()
-        InsightRow(
-          stringResource(StringsR.string.listening_stats_current_streak),
-          pluralStringResource(
-            StringsR.plurals.listening_stats_streak_days,
-            viewState.currentStreak,
-            viewState.currentStreak,
-          ),
-        )
-        InsightDivider()
-        InsightRow(
-          stringResource(StringsR.string.listening_stats_longest_streak),
-          pluralStringResource(
-            StringsR.plurals.listening_stats_streak_days,
-            viewState.longestStreak,
-            viewState.longestStreak,
-          ),
-        )
-      }
+private fun StatsCard(content: @Composable () -> Unit) {
+  Card(
+    modifier = Modifier
+      .fillMaxWidth()
+      .padding(top = 8.dp),
+    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    shape = MaterialTheme.shapes.large,
+  ) {
+    Column(modifier = Modifier.padding(16.dp)) {
+      content()
     }
   }
 }
 
 @Composable
-private fun InsightDivider() {
+private fun RowDivider() {
   HorizontalDivider(
     modifier = Modifier.padding(vertical = 8.dp),
     color = MaterialTheme.colorScheme.outlineVariant,
@@ -648,9 +637,11 @@ private fun InsightDivider() {
 }
 
 @Composable
-private fun InsightRow(
+private fun StatRow(
   label: String,
   value: String,
+  supporting: String? = null,
+  badge: String? = null,
 ) {
   Row(
     modifier = Modifier.fillMaxWidth(),
@@ -663,12 +654,34 @@ private fun InsightRow(
       color = MaterialTheme.colorScheme.onSurfaceVariant,
       modifier = Modifier.weight(1f),
     )
-    Text(
-      text = value,
-      style = MaterialTheme.typography.labelLarge,
-      textAlign = TextAlign.End,
+    Column(
       modifier = Modifier.padding(start = 12.dp),
-    )
+      horizontalAlignment = Alignment.End,
+    ) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+          text = value,
+          style = MaterialTheme.typography.labelLarge,
+          textAlign = TextAlign.End,
+        )
+        badge?.let {
+          Text(
+            text = it,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.tertiary,
+            modifier = Modifier.padding(start = 6.dp),
+          )
+        }
+      }
+      supporting?.let {
+        Text(
+          text = it,
+          style = MaterialTheme.typography.labelSmall,
+          color = MaterialTheme.colorScheme.primary,
+          modifier = Modifier.padding(top = 2.dp),
+        )
+      }
+    }
   }
 }
 
