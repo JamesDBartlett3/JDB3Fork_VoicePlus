@@ -9,6 +9,7 @@ import dev.zacsweers.metro.SingleIn
 import kotlinx.coroutines.flow.first
 import voice.core.data.BookCharacter
 import voice.core.data.BookContent
+import voice.core.data.BookId
 import voice.core.data.Chapter
 import voice.core.data.ChapterId
 import voice.core.data.ListeningEvent
@@ -33,6 +34,7 @@ import voice.core.data.store.snapshot.rekey.ScannedChapter
 import voice.core.data.store.snapshot.rekey.SnapChapter
 import voice.core.data.store.snapshot.rekey.SnapshotBook
 import voice.core.logging.api.Logger
+import java.time.Instant
 
 /**
  * Restores an external backup bundle after an OS-level wipe (uninstall/reinstall → SAF re-grant changes every
@@ -109,6 +111,18 @@ internal class OsWipeRestorer(
     // 5. Persist the matched books, keyed entirely to the new ids. Atomic; additive; freshness-aware.
     val liveById = liveBooks.associateBy { it.id.value }
     appDb.transaction {
+      // A previous partial run may have kept a then-unmatched book's sessions under its dead old id
+      // (see the unmatched block below). Those raw rows carry dead chapter ids and unclamped
+      // positions; the snapshot's matched copies are strictly better (re-keyed chapters, clamped
+      // positions), so drop them and let the inserts below replace them. Scoped to the start
+      // instants this snapshot actually re-supplies: the old id may have been — or still be — a
+      // live id that collected organic sessions since the backup, and those must survive.
+      result.matched.forEach { matched ->
+        sessionsByBook[matched.sourceId].orEmpty()
+          .map { Instant.ofEpochMilli(it.startedAtEpochMillis) }
+          .chunked(500)
+          .forEach { starts -> listeningSessionDao.deleteForBookAt(BookId(matched.sourceId), starts) }
+      }
       // Seed the natural-key dedup sets INSIDE the transaction so a concurrent caller can't make us
       // double-insert the autoGenerate-PK rows (sessions / characters).
       val seenSessionKeys = listeningSessionDao.all().mapTo(mutableSetOf()) { it.naturalKey() }
@@ -120,7 +134,9 @@ internal class OsWipeRestorer(
         val content = if (live != null && live.lastPlayedAt > matched.sourceLastPlayedAt) {
           live.copy(isActive = true)
         } else {
-          matched.content
+          // The re-keyer nulls the snapshot's cover (its app-private path died with the wipe); the scan
+          // that just ran extracted a fresh one onto the live row — keep it instead of clobbering it.
+          matched.content.copy(cover = live?.cover)
         }
         bookContentDao.insert(content)
         // chapters2 rows already exist from the scan (matched.content.chapters are the scanned ids), so
@@ -140,6 +156,27 @@ internal class OsWipeRestorer(
         // carrying them across dead-URI chapter ids isn't worth the mapping surface. The same-device
         // direct restore path (BackupRestorer.applyDirect) does restore them.
       }
+      // Sessions the re-key could not carry over still count as listened hours — the stats screen
+      // sums ALL sessions, present book or not — so keep them under their old ids rather than drop
+      // them: every session of a book that can't be matched (folder missing, not re-granted,
+      // deleted from disk), and a matched book's sessions whose chapter the re-keyer couldn't map
+      // (file replaced before the backup). The delete at the top of this transaction re-collects
+      // them if a later run matches the book. Sessions of user-deleted (excluded, non-hidden) books
+      // stay deleted, mirroring the book filter above.
+      val matchedSourceIds = result.matched.mapTo(mutableSetOf()) { it.sourceId }
+      val reKeyedStarts = result.matched.associate { matched ->
+        matched.sourceId to matched.sessions.mapTo(mutableSetOf()) { it.startedAt }
+      }
+      snapshot.sessions
+        .filter { it.bookId !in excludedIds || it.bookId in snapshot.hiddenBooks }
+        .filter { dto ->
+          dto.bookId !in matchedSourceIds ||
+            Instant.ofEpochMilli(dto.startedAtEpochMillis) !in reKeyedStarts.getValue(dto.bookId)
+        }
+        .forEach { dto ->
+          val session = dto.toListeningSession()
+          if (seenSessionKeys.add(session.naturalKey())) listeningSessionDao.insert(session.copy(id = 0))
+        }
     }
 
     // Translate the hidden set onto the new ids: the snapshot's hidden ids died with the wipe, and
