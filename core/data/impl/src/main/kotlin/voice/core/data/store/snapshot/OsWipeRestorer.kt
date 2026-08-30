@@ -114,14 +114,18 @@ internal class OsWipeRestorer(
       // A previous partial run may have kept a then-unmatched book's sessions under its dead old id
       // (see the unmatched block below). Those raw rows carry dead chapter ids and unclamped
       // positions; the snapshot's matched copies are strictly better (re-keyed chapters, clamped
-      // positions), so drop them and let the inserts below replace them. Scoped to the start
-      // instants this snapshot actually re-supplies: the old id may have been — or still be — a
-      // live id that collected organic sessions since the backup, and those must survive.
+      // positions), so drop them and let the inserts below replace them. Scoped to the natural keys
+      // this snapshot actually re-supplies: the old id may have been — or still be — a live id that
+      // collected organic sessions since the backup, and those must survive.
       result.matched.forEach { matched ->
         sessionsByBook[matched.sourceId].orEmpty()
-          .map { Instant.ofEpochMilli(it.startedAtEpochMillis) }
-          .chunked(500)
-          .forEach { starts -> listeningSessionDao.deleteForBookAt(BookId(matched.sourceId), starts) }
+          .forEach { session ->
+            listeningSessionDao.deleteAt(
+              bookId = BookId(matched.sourceId),
+              startedAt = Instant.ofEpochMilli(session.startedAtEpochMillis),
+              startPositionMs = session.startPositionMs,
+            )
+          }
       }
       // Seed the natural-key dedup sets INSIDE the transaction so a concurrent caller can't make us
       // double-insert the autoGenerate-PK rows (sessions / characters).
@@ -164,14 +168,15 @@ internal class OsWipeRestorer(
       // them if a later run matches the book. Sessions of user-deleted (excluded, non-hidden) books
       // stay deleted, mirroring the book filter above.
       val matchedSourceIds = result.matched.mapTo(mutableSetOf()) { it.sourceId }
-      val reKeyedStarts = result.matched.associate { matched ->
-        matched.sourceId to matched.sessions.mapTo(mutableSetOf()) { it.startedAt }
+      val reKeyedSessions = result.matched.associate { matched ->
+        matched.sourceId to matched.sessions.mapTo(mutableSetOf()) { it.startedAt to it.startPositionMs }
       }
       snapshot.sessions
         .filter { it.bookId !in excludedIds || it.bookId in snapshot.hiddenBooks }
         .filter { dto ->
           dto.bookId !in matchedSourceIds ||
-            Instant.ofEpochMilli(dto.startedAtEpochMillis) !in reKeyedStarts.getValue(dto.bookId)
+            (Instant.ofEpochMilli(dto.startedAtEpochMillis) to dto.startPositionMs) !in
+            reKeyedSessions.getValue(dto.bookId)
         }
         .forEach { dto ->
           val session = dto.toListeningSession()

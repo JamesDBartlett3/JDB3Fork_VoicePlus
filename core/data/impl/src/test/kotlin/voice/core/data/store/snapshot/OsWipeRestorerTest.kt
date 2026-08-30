@@ -390,10 +390,11 @@ class OsWipeRestorerTest {
     val organic = ListeningSession(
       bookId = BookId(oldUri("primary:Books/Dune")),
       chapterId = ChapterId(oldUri("primary:Books/Dune/01.mp3")),
-      startedAt = Instant.ofEpochMilli(999_999),
-      endedAt = Instant.ofEpochMilli(999_999 + 500),
-      startPositionMs = 0,
-      endPositionMs = 500,
+      // Same book and start instant as the snapshot row, but a different natural-key position.
+      startedAt = Instant.ofEpochMilli(123),
+      endedAt = Instant.ofEpochMilli(623),
+      startPositionMs = 900,
+      endPositionMs = 1_400,
       durationMs = 500,
     )
     onScan = {
@@ -421,8 +422,8 @@ class OsWipeRestorerTest {
     )
     val staleChapter = ListeningSessionDto(
       id = 2, bookId = oldUri("primary:Books/Dune"), chapterId = oldUri("primary:Books/Dune/replaced.mp3"),
-      startedAtEpochMillis = 300, endedAtEpochMillis = 700, durationMs = 400,
-      startPositionMs = 0, endPositionMs = 400, endChapterId = null,
+      startedAtEpochMillis = 100, endedAtEpochMillis = 500, durationMs = 400,
+      startPositionMs = 50, endPositionMs = 450, endChapterId = null,
     )
     onScan = { scanInBook("primary:Books/Dune", listOf("01.mp3")) }
 

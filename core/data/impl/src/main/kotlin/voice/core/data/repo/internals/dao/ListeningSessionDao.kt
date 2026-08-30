@@ -21,13 +21,16 @@ public interface ListeningSessionDao {
   @Query("DELETE FROM listening_session WHERE bookId = :bookId")
   public suspend fun deleteAllForBook(bookId: BookId)
 
-  // Restore cleanup: removes a book's rows for the given start instants so a snapshot's canonical
-  // re-keyed copies can replace them. Scoped on purpose — rows a snapshot does not contain are
-  // organic listening recorded since the backup and must never be deleted wholesale.
-  @Query("DELETE FROM listening_session WHERE bookId = :bookId AND startedAt IN (:startedAt)")
-  public suspend fun deleteForBookAt(
+  // Restore cleanup uses the same natural key as deduplication so an organic row that happens to
+  // start at the same instant is not removed with the snapshot row.
+  @Query(
+    "DELETE FROM listening_session " +
+      "WHERE bookId = :bookId AND startedAt = :startedAt AND startPositionMs = :startPositionMs",
+  )
+  public suspend fun deleteAt(
     bookId: BookId,
-    startedAt: List<Instant>,
+    startedAt: Instant,
+    startPositionMs: Long,
   )
 
   @Query("SELECT * FROM listening_session ORDER BY startedAt ASC")
