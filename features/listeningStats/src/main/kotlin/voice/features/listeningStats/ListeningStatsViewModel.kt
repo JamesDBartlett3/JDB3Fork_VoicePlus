@@ -12,13 +12,12 @@ import voice.core.data.Book
 import voice.core.data.BookId
 import voice.core.data.ChapterId
 import voice.core.data.ListeningSession
+import voice.core.data.ListeningSessionEndReason
 import voice.core.data.repo.BookRepository
 import voice.core.data.repo.ListeningSessionRepo
 import voice.core.ui.ImmutableFile
-import voice.navigation.Destination
 import voice.navigation.Navigator
 import java.net.URLDecoder
-import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
@@ -74,10 +73,6 @@ class ListeningStatsViewModel(
   fun onClose() {
     navigator.goBack()
   }
-
-  fun onBookClick(bookId: BookId) {
-    navigator.goTo(Destination.Playback(bookId))
-  }
 }
 
 data class LibraryBookInfo(
@@ -102,7 +97,7 @@ internal fun computeStats(
   // (folder-level book alongside a file-level or parent-folder one), and the Finished shelf
   // collapses those — the "N of M completed" card must agree with it.
   val booksInLibrary = books.distinctBy { it.name }.size
-  val booksCompleted = books.filter { it.isCompleted }.distinctBy { it.name }.size
+  val booksCompleted = finishedBooks.size
 
   if (sessions.isEmpty()) {
     return ListeningStatsViewState.Empty.copy(
@@ -194,8 +189,8 @@ internal fun computeStats(
 /**
  * One shelf entry per finished TITLE, newest finish first. The same audiobook can exist under
  * several library identities (a folder-level book alongside a file-level or parent-folder one, from
- * grants added over time), so hours are summed across all same-named copies and the completed copy
- * fronts the entry. There is no explicit "completed at" timestamp: the finish date is the last
+ * grants added over time), so hours are summed across all same-named copies. There is no explicit
+ * "completed at" timestamp: the finish date is the last
  * session that demonstrably REACHED the end of the book, so a later re-listen that stops mid-book
  * cannot bump a March finish to August. For a book finished before session tracking existed both
  * duration and date stay empty rather than showing zeros.
@@ -212,24 +207,31 @@ private fun finishedBooks(
 
   return books
     .groupBy { it.name }
-    .mapNotNull { (_, copies) ->
-      // The completed copy fronts the entry; a duplicate identity that holds the history but is not
-      // itself marked completed still contributes its hours below.
-      val display = copies.filter { it.isCompleted }.maxByOrNull { sessionsByBook[it.id].orEmpty().size }
-        ?: return@mapNotNull null
+    .mapNotNull { (name, copies) ->
       val copySessions = copies.map { it to sessionsByBook[it.id].orEmpty() }
-      val completedAt = copySessions.mapNotNull { (copy, s) -> completedAt(copy, s) }.maxOrNull()
-      // Fallback: the last session recorded against one of this title's own identities. Sessions
-      // merely attributed by path containment (a deleted book nested inside this one) count toward
-      // hours but must not invent a finish date.
-      val ids = copies.mapTo(hashSetOf()) { it.id }
-      val nativeLastEnd = copySessions.flatMap { it.second }.filter { it.bookId in ids }.maxOfOrNull { it.endedAt }
-      val finishedOn = (completedAt ?: nativeLastEnd)?.atZone(zone)?.toLocalDate()
+      val allSessions = copySessions.flatMap { it.second }
+      val nativeCopySessions = copySessions.map { (copy, s) -> copy to s.filter { it.bookId == copy.id } }
+      val explicitCompletions = nativeCopySessions.flatMap { (_, s) ->
+        s.filter { it.endReason == ListeningSessionEndReason.EndOfBook.id }
+      }
+      val legacyCompletions = nativeCopySessions.flatMap { (copy, s) -> legacyCompletionSessions(copy, s) }
+      val completions = explicitCompletions + legacyCompletions
+      val completedAt = completions.maxOfOrNull { it.endedAt }
+      // Current position can move away from the end when a relisten begins, so completion evidence
+      // also keeps the title on this historical shelf.
+      if (copies.none { it.isCompleted } && completions.isEmpty()) return@mapNotNull null
+      val finishedOn = completedAt?.atZone(zone)?.toLocalDate()
       FinishedBookStats(
-        bookId = display.id,
-        name = display.name,
-        cover = display.cover ?: copies.firstNotNullOfOrNull { it.cover },
-        listenedMs = copySessions.sumOf { (_, s) -> s.sumOf { it.durationMs } },
+        name = name,
+        cover = copies.firstNotNullOfOrNull { it.cover },
+        listenedMs = allSessions.sumOf { it.durationMs },
+        sessionCount = allSessions.size,
+        // A legacy near-end record can establish that a finish happened, but not an exact count.
+        completionCount = explicitCompletions.size.takeIf { it > 0 && legacyCompletions.isEmpty() },
+        firstListenedDateLabel = allSessions.minOfOrNull { it.startedAt }
+          ?.atZone(zone)
+          ?.toLocalDate()
+          ?.format(dateFormatter),
         finishedDate = finishedOn,
         finishedDateLabel = finishedOn?.format(dateFormatter),
       )
@@ -238,12 +240,12 @@ private fun finishedBooks(
     .sortedWith(compareByDescending(nullsFirst()) { it.finishedDate })
 }
 
-/** The instant this copy's sessions last reached the end of its final chapter, or null. */
-private fun completedAt(
+/** Pre-end-reason sessions that demonstrably reached the final chapter's end. */
+private fun legacyCompletionSessions(
   book: LibraryBookInfo,
   bookSessions: List<ListeningSession>,
-): Instant? {
-  if (book.lastChapter == null || book.lastChapterDurationMs <= 0) return null
+): List<ListeningSession> {
+  if (book.lastChapter == null || book.lastChapterDurationMs <= 0) return emptyList()
   // Chapter identity is compared by document path only when the raw ids differ: the same file
   // appears under different URI shapes (tree-grant vs plain document) depending on which folder
   // grant recorded the session.
@@ -253,11 +255,11 @@ private fun completedAt(
   val threshold = (book.lastChapterDurationMs - 60_000).coerceAtLeast(book.lastChapterDurationMs / 2)
   return bookSessions
     .filter { session ->
+      if (session.endReason != null) return@filter false
       val endChapter = session.endChapterId ?: session.chapterId
       session.endPositionMs >= threshold &&
         (endChapter == book.lastChapter || endChapter.value.contentDocumentPath() == lastChapterPath)
     }
-    .maxOfOrNull { it.endedAt }
 }
 
 /**
@@ -375,10 +377,12 @@ data class ChartDataPoint(
 )
 
 data class FinishedBookStats(
-  val bookId: BookId,
   val name: String,
   val cover: ImmutableFile?,
   val listenedMs: Long,
+  val sessionCount: Int,
+  val completionCount: Int?,
+  val firstListenedDateLabel: String?,
   val finishedDate: LocalDate?,
   val finishedDateLabel: String?,
 )

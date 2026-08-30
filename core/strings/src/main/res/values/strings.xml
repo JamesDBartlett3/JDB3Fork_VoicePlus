@@ -96,6 +96,18 @@
     <string name="listening_stats_recently">Recently</string>
     <string name="listening_stats_records">Records</string>
     <string name="listening_stats_finished">Finished</string>
+    <string name="listening_stats_show_all">Show all %1$d</string>
+    <string name="listening_stats_show_fewer">Show fewer</string>
+    <string name="listening_stats_sessions">Listening sessions</string>
+    <string name="listening_stats_completed">Completed</string>
+    <plurals name="listening_stats_completion_count">
+        <item quantity="one">%1$d time</item>
+        <item quantity="other">%1$d times</item>
+    </plurals>
+    <string name="listening_stats_completed_at_least_once">At least once</string>
+    <string name="listening_stats_first_listened">First listened</string>
+    <string name="listening_stats_most_recent_completion">Most recent completion</string>
+    <string name="listening_stats_not_available">Not available</string>
     <string name="listening_stats_biggest_month">Biggest month</string>
     <string name="listening_stats_streak_now">● now</string>
     <string name="listening_stats_unit_days">Days</string>

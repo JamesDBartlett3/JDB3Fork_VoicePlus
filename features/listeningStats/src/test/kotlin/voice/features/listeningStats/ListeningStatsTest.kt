@@ -5,6 +5,7 @@ import org.junit.Test
 import voice.core.data.BookId
 import voice.core.data.ChapterId
 import voice.core.data.ListeningSession
+import voice.core.data.ListeningSessionEndReason
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -27,6 +28,7 @@ class ListeningStatsTest {
     bookId: BookId = BookId("content://book"),
     chapterId: ChapterId = ChapterId("content://chapter"),
     endPositionMs: Long? = null,
+    endReason: Int? = null,
   ): ListeningSession {
     val start = date.atTime(startHour, startMinute).atZone(zone).toInstant()
     val durationMs = durationMinutes * 60_000
@@ -38,6 +40,7 @@ class ListeningStatsTest {
       startPositionMs = 0,
       endPositionMs = endPositionMs ?: durationMs,
       durationMs = durationMs,
+      endReason = endReason,
     )
   }
 
@@ -177,7 +180,7 @@ class ListeningStatsTest {
   }
 
   @Test
-  fun `finished books carry their listening time and last-session date, newest first`() {
+  fun `finished books carry their listening time and completion date, newest first`() {
     val first = BookId("content://first")
     val second = BookId("content://second")
     val books = listOf(
@@ -186,8 +189,20 @@ class ListeningStatsTest {
       book("content://third", name = "Unfinished"),
     )
     val sessions = listOf(
-      session(today.minusDays(10), startHour = 9, durationMinutes = 20, bookId = first),
-      session(today, startHour = 10, durationMinutes = 40, bookId = second),
+      session(
+        today.minusDays(10),
+        startHour = 9,
+        durationMinutes = 20,
+        bookId = first,
+        endReason = ListeningSessionEndReason.EndOfBook.id,
+      ),
+      session(
+        today,
+        startHour = 10,
+        durationMinutes = 40,
+        bookId = second,
+        endReason = ListeningSessionEndReason.EndOfBook.id,
+      ),
       session(today.minusDays(1), startHour = 11, durationMinutes = 30, bookId = second),
     )
 
@@ -212,6 +227,8 @@ class ListeningStatsTest {
     finished[1].listenedMs shouldBe 0L
     finished[1].finishedDate shouldBe null
     finished[1].finishedDateLabel shouldBe null
+    finished[1].completionCount shouldBe null
+    finished[1].firstListenedDateLabel shouldBe null
   }
 
   @Test
@@ -247,6 +264,102 @@ class ListeningStatsTest {
   }
 
   @Test
+  fun `end of book sessions count completions and populate book details`() {
+    val bid = BookId("content://book")
+    val sessions = listOf(
+      session(
+        LocalDate.of(2026, 1, 8),
+        startHour = 10,
+        durationMinutes = 60,
+        bookId = bid,
+        endReason = ListeningSessionEndReason.EndOfBook.id,
+      ),
+      session(
+        LocalDate.of(2026, 4, 12),
+        startHour = 10,
+        durationMinutes = 60,
+        bookId = bid,
+        endReason = ListeningSessionEndReason.EndOfBook.id,
+      ),
+      session(
+        today,
+        startHour = 10,
+        durationMinutes = 60,
+        bookId = bid,
+        endReason = ListeningSessionEndReason.EndOfBook.id,
+      ),
+      session(
+        today,
+        startHour = 12,
+        durationMinutes = 20,
+        bookId = bid,
+        endReason = ListeningSessionEndReason.Paused.id,
+      ),
+    )
+
+    val result = stats(sessions).finishedBooks.single()
+    result.completionCount shouldBe 3
+    result.sessionCount shouldBe 4
+    result.firstListenedDateLabel shouldBe "8 Jan 2026"
+    result.finishedDateLabel shouldBe "2 Aug 2026"
+  }
+
+  @Test
+  fun `a finished book stays in history after a relisten moves its current position`() {
+    val books = listOf(book("content://book", name = "The book", isCompleted = false))
+    val finish = session(
+      LocalDate.of(2026, 3, 20),
+      startHour = 20,
+      durationMinutes = 60,
+      endReason = ListeningSessionEndReason.EndOfBook.id,
+    )
+
+    val result = stats(listOf(finish), books)
+    result.finishedBooks.single().name shouldBe "The book"
+    result.finishedBooks.single().completionCount shouldBe 1
+    result.booksCompleted shouldBe 1
+  }
+
+  @Test
+  fun `legacy near-end sessions establish a finish without claiming an exact count`() {
+    val bid = BookId("content://book")
+    val books = listOf(
+      book(
+        bid.value,
+        name = "The book",
+        isCompleted = true,
+        lastChapter = ChapterId("content://chapter"),
+        lastChapterDurationMs = 60 * 60_000L,
+      ),
+    )
+    val sessions = listOf(
+      session(
+        LocalDate.of(2026, 2, 1),
+        startHour = 10,
+        durationMinutes = 59,
+        bookId = bid,
+      ),
+      session(
+        LocalDate.of(2026, 5, 1),
+        startHour = 10,
+        durationMinutes = 59,
+        bookId = bid,
+      ),
+      session(
+        today,
+        startHour = 10,
+        durationMinutes = 59,
+        bookId = bid,
+        endReason = ListeningSessionEndReason.Paused.id,
+      ),
+    )
+
+    val result = stats(sessions, books).finishedBooks.single()
+    result.completionCount shouldBe null
+    result.finishedDateLabel shouldBe "1 May 2026"
+  }
+
+  @Test
   fun `orphan sessions are attributed to the deepest library book containing their document path`() {
     // The scanner has since re-keyed the file into a folder book; sessions recorded against the old
     // file-level id must follow the content, and the nested Book 3 folder must beat the parent folder.
@@ -258,10 +371,19 @@ class ListeningStatsTest {
       book(parent, name = "DCC omnibus", isCompleted = true),
       book(folderBook, name = "Book 3", isCompleted = true),
     )
-    val sessions = listOf(session(today, startHour = 10, durationMinutes = 60, bookId = BookId(deadFileId)))
+    val sessions = listOf(
+      session(
+        today,
+        startHour = 10,
+        durationMinutes = 60,
+        bookId = BookId(deadFileId),
+        endReason = ListeningSessionEndReason.EndOfBook.id,
+      ),
+    )
 
     val finished = stats(sessions, books).finishedBooks
     finished.single { it.name == "Book 3" }.listenedMs shouldBe 60 * 60_000L
+    finished.single { it.name == "Book 3" }.completionCount shouldBe null
     finished.single { it.name == "DCC omnibus" }.listenedMs shouldBe 0L
   }
 
@@ -289,7 +411,7 @@ class ListeningStatsTest {
   }
 
   @Test
-  fun `hours on a non-completed duplicate identity still show on the completed copy's entry`() {
+  fun `hours on a duplicate identity do not invent a completion date`() {
     val historyHolder = BookId("content://history-holder")
     val books = listOf(
       book("content://completed-copy", name = "Same Book", isCompleted = true),
@@ -300,7 +422,7 @@ class ListeningStatsTest {
     val entry = stats(sessions, books).finishedBooks.single()
     entry.name shouldBe "Same Book"
     entry.listenedMs shouldBe 45 * 60_000L
-    entry.finishedDate shouldBe today
+    entry.finishedDate shouldBe null
   }
 
   @Test
@@ -314,7 +436,6 @@ class ListeningStatsTest {
 
     val finished = stats(sessions, books).finishedBooks
     finished.map { it.name } shouldBe listOf("Same Book")
-    finished.single().bookId shouldBe listened
     finished.single().listenedMs shouldBe 30 * 60_000L
   }
 

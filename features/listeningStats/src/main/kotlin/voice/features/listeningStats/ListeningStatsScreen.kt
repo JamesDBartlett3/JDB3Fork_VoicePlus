@@ -28,13 +28,18 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.retain.retain
 import androidx.compose.runtime.setValue
@@ -59,7 +64,6 @@ import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.IntoSet
 import dev.zacsweers.metro.Provides
 import voice.core.common.rootGraphAs
-import voice.core.data.BookId
 import voice.navigation.Destination
 import voice.navigation.NavEntryProvider
 import voice.core.strings.R as StringsR
@@ -91,7 +95,6 @@ fun ListeningStatsScreen() {
   ListeningStatsScreen(
     viewState = viewState,
     onClose = viewModel::onClose,
-    onBookClick = viewModel::onBookClick,
   )
 }
 
@@ -99,9 +102,9 @@ fun ListeningStatsScreen() {
 internal fun ListeningStatsScreen(
   viewState: ListeningStatsViewState,
   onClose: () -> Unit,
-  onBookClick: (BookId) -> Unit,
   modifier: Modifier = Modifier,
 ) {
+  var selectedBook by remember { mutableStateOf<FinishedBookStats?>(null) }
   Scaffold(
     modifier = modifier,
     topBar = {
@@ -157,7 +160,7 @@ internal fun ListeningStatsScreen(
         if (viewState.finishedBooks.isNotEmpty()) {
           FinishedBooks(
             books = viewState.finishedBooks,
-            onBookClick = onBookClick,
+            onBookClick = { selectedBook = it },
           )
         }
 
@@ -180,6 +183,12 @@ internal fun ListeningStatsScreen(
         Spacer(modifier = Modifier.size(12.dp))
       }
     }
+  }
+  selectedBook?.let { book ->
+    FinishedBookDetailsSheet(
+      book = book,
+      onDismiss = { selectedBook = null },
+    )
   }
 }
 
@@ -486,8 +495,10 @@ private fun Records(viewState: ListeningStatsViewState) {
 @Composable
 private fun FinishedBooks(
   books: List<FinishedBookStats>,
-  onBookClick: (BookId) -> Unit,
+  onBookClick: (FinishedBookStats) -> Unit,
 ) {
+  var showAll by remember { mutableStateOf(false) }
+  val visibleBooks = if (showAll) books else books.take(RECENT_FINISHED_BOOKS)
   Column {
     SectionTitle(stringResource(StringsR.string.listening_stats_finished))
     Card(
@@ -497,15 +508,33 @@ private fun FinishedBooks(
       colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
       shape = MaterialTheme.shapes.large,
     ) {
-      Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp)) {
-        books.forEachIndexed { index, book ->
+      Column {
+        visibleBooks.forEachIndexed { index, book ->
           if (index > 0) {
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            HorizontalDivider(
+              modifier = Modifier.padding(start = 70.dp),
+              color = MaterialTheme.colorScheme.outlineVariant,
+            )
           }
           FinishedBookRow(
             book = book,
-            onClick = { onBookClick(book.bookId) },
+            onClick = { onBookClick(book) },
           )
+        }
+        if (books.size > RECENT_FINISHED_BOOKS) {
+          HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+          TextButton(
+            onClick = { showAll = !showAll },
+            modifier = Modifier.fillMaxWidth(),
+          ) {
+            Text(
+              if (showAll) {
+                stringResource(StringsR.string.listening_stats_show_fewer)
+              } else {
+                stringResource(StringsR.string.listening_stats_show_all, books.size)
+              },
+            )
+          }
         }
       }
     }
@@ -517,52 +546,137 @@ private fun FinishedBookRow(
   book: FinishedBookStats,
   onClick: () -> Unit,
 ) {
-  Row(
+  val meta = listOfNotNull(
+    formatDuration(book.listenedMs).takeIf { book.listenedMs > 0 },
+    book.finishedDateLabel,
+  ).joinToString(" · ")
+  ListItem(
     modifier = Modifier
       .fillMaxWidth()
-      .clickable(onClick = onClick)
-      .padding(vertical = 10.dp),
-    verticalAlignment = Alignment.CenterVertically,
-  ) {
-    AsyncImage(
-      modifier = Modifier
-        .size(width = 42.dp, height = 58.dp)
-        .clip(MaterialTheme.shapes.small),
-      model = book.cover?.file,
-      placeholder = painterResource(id = UiR.drawable.album_art),
-      error = painterResource(id = UiR.drawable.album_art),
-      contentScale = ContentScale.Crop,
-      contentDescription = null,
-    )
-    Column(
-      modifier = Modifier
-        .weight(1f)
-        .padding(horizontal = 12.dp),
-    ) {
+      .clickable(role = Role.Button, onClick = onClick),
+    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    headlineContent = {
       Text(
         text = book.name,
         style = MaterialTheme.typography.bodyMedium,
         maxLines = 2,
         overflow = TextOverflow.Ellipsis,
       )
-      val meta = listOfNotNull(
-        formatDuration(book.listenedMs).takeIf { book.listenedMs > 0 },
-        book.finishedDateLabel,
-      ).joinToString(" · ")
-      if (meta.isNotEmpty()) {
+    },
+    supportingContent = if (meta.isNotEmpty()) {
+      {
         Text(
           text = meta,
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
-          modifier = Modifier.padding(top = 2.dp),
         )
       }
+    } else {
+      null
+    },
+    leadingContent = {
+      AsyncImage(
+        modifier = Modifier
+          .size(width = 42.dp, height = 58.dp)
+          .clip(MaterialTheme.shapes.small),
+        model = book.cover?.file,
+        placeholder = painterResource(id = UiR.drawable.album_art),
+        error = painterResource(id = UiR.drawable.album_art),
+        contentScale = ContentScale.Crop,
+        contentDescription = null,
+      )
+    },
+    trailingContent = {
+      Icon(
+        Icons.Outlined.ChevronRight,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    },
+  )
+}
+
+@Composable
+private fun FinishedBookDetailsSheet(
+  book: FinishedBookStats,
+  onDismiss: () -> Unit,
+) {
+  ModalBottomSheet(onDismissRequest = onDismiss) {
+    Box(
+      modifier = Modifier.fillMaxWidth(),
+      contentAlignment = Alignment.TopCenter,
+    ) {
+      Column(
+        modifier = Modifier
+          .fillMaxWidth()
+          .widthIn(max = 600.dp)
+          .verticalScroll(rememberScrollState())
+          .padding(horizontal = 16.dp)
+          .padding(bottom = 32.dp),
+      ) {
+        ListItem(
+          headlineContent = {
+            Text(
+              text = book.name,
+              style = MaterialTheme.typography.titleLarge,
+              maxLines = 2,
+              overflow = TextOverflow.Ellipsis,
+            )
+          },
+          leadingContent = {
+            AsyncImage(
+              modifier = Modifier
+                .size(width = 56.dp, height = 78.dp)
+                .clip(MaterialTheme.shapes.medium),
+              model = book.cover?.file,
+              placeholder = painterResource(id = UiR.drawable.album_art),
+              error = painterResource(id = UiR.drawable.album_art),
+              contentScale = ContentScale.Crop,
+              contentDescription = null,
+            )
+          },
+        )
+        StatsCard {
+          StatRow(
+            label = stringResource(StringsR.string.listening_stats_total_lifetime),
+            value = formatDuration(book.listenedMs),
+          )
+          RowDivider()
+          StatRow(
+            label = stringResource(StringsR.string.listening_stats_sessions),
+            value = book.sessionCount.toString(),
+          )
+          RowDivider()
+          StatRow(
+            label = stringResource(StringsR.string.listening_stats_avg_session),
+            value = if (book.sessionCount > 0) {
+              formatDuration(book.listenedMs / book.sessionCount)
+            } else {
+              stringResource(StringsR.string.listening_stats_not_available)
+            },
+          )
+          RowDivider()
+          StatRow(
+            label = stringResource(StringsR.string.listening_stats_completed),
+            value = book.completionCount?.let { count ->
+              pluralStringResource(StringsR.plurals.listening_stats_completion_count, count, count)
+            } ?: stringResource(StringsR.string.listening_stats_completed_at_least_once),
+          )
+          RowDivider()
+          StatRow(
+            label = stringResource(StringsR.string.listening_stats_first_listened),
+            value = book.firstListenedDateLabel
+              ?: stringResource(StringsR.string.listening_stats_not_available),
+          )
+          RowDivider()
+          StatRow(
+            label = stringResource(StringsR.string.listening_stats_most_recent_completion),
+            value = book.finishedDateLabel
+              ?: stringResource(StringsR.string.listening_stats_not_available),
+          )
+        }
+      }
     }
-    Icon(
-      Icons.Outlined.ChevronRight,
-      contentDescription = null,
-      tint = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
   }
 }
 
@@ -704,3 +818,5 @@ fun formatDuration(ms: Long): String {
     else -> "0m"
   }
 }
+
+private const val RECENT_FINISHED_BOOKS = 5
