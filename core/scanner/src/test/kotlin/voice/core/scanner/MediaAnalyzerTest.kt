@@ -71,7 +71,7 @@ internal class MediaAnalyzerTest {
   )
 
   private fun parse(filename: String): Metadata? {
-    val testFile = File(javaClass.classLoader!!.getResource(filename)!!.file)
+    val testFile = File(javaClass.classLoader!!.getResource(filename)!!.toURI())
     val documentFile = FileBasedDocumentFile(testFile)
     return runBlocking { analyzer.analyze(documentFile) }
   }
