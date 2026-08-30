@@ -39,6 +39,7 @@ class CurrentBookResolver(
       it.copy(
         currentChapter = livePosition.chapterId,
         positionInChapter = livePosition.positionMs,
+        playbackSpeed = livePosition.playbackSpeed,
       )
     }
   }
@@ -51,6 +52,7 @@ class CurrentBookResolver(
         content.copy(
           currentChapter = livePosition.chapterId,
           positionInChapter = livePosition.positionMs,
+          playbackSpeed = livePosition.playbackSpeed,
           lastPlayedAt = Instant.now(),
         )
       } else {
