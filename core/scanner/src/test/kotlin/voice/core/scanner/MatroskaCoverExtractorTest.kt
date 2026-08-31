@@ -24,7 +24,7 @@ class MatroskaCoverExtractorTest {
   @Test
   fun mka() {
     val coverExtractor = MatroskaCoverExtractor(ApplicationProvider.getApplicationContext())
-    val testFile = File(javaClass.classLoader!!.getResource("mka_with_cover.mka")!!.file)
+    val testFile = File(javaClass.classLoader!!.getResource("mka_with_cover.mka")!!.toURI())
     val coverFile = temporaryFolder.newFile("cover.jpg")
     val extracted = coverExtractor.extract(
       input = testFile.toUri(),

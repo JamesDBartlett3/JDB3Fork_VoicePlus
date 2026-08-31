@@ -21,6 +21,18 @@ public interface ListeningSessionDao {
   @Query("DELETE FROM listening_session WHERE bookId = :bookId")
   public suspend fun deleteAllForBook(bookId: BookId)
 
+  // Restore cleanup uses the same natural key as deduplication so an organic row that happens to
+  // start at the same instant is not removed with the snapshot row.
+  @Query(
+    "DELETE FROM listening_session " +
+      "WHERE bookId = :bookId AND startedAt = :startedAt AND startPositionMs = :startPositionMs",
+  )
+  public suspend fun deleteAt(
+    bookId: BookId,
+    startedAt: Instant,
+    startPositionMs: Long,
+  )
+
   @Query("SELECT * FROM listening_session ORDER BY startedAt ASC")
   public fun allSessions(): Flow<List<ListeningSession>>
 

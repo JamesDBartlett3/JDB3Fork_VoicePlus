@@ -40,8 +40,8 @@ android {
   defaultConfig {
     applicationId = "com.github.mistermo_vibecode.voiceplus"
     // Keep these as literals so F-Droid's tag checker can discover releases.
-    versionName = "1.25"
-    versionCode = 5408002
+    versionName = "1.26"
+    versionCode = 5408003
 
     testInstrumentationRunner = "voice.app.VoiceJUnitRunner"
   }

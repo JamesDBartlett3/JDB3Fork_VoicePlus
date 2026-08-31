@@ -2,6 +2,7 @@ package voice.core.playback.player
 
 import android.os.Looper
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.test.utils.FakeMediaSource
 import androidx.media3.test.utils.FakeTimeline
@@ -15,6 +16,7 @@ import io.kotest.matchers.should
 import io.kotest.matchers.shouldBe
 import io.mockk.Runs
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -38,6 +40,7 @@ import voice.core.data.LockscreenSecondaryTextMode
 import voice.core.data.LockscreenSliderMode
 import voice.core.data.MarkData
 import voice.core.data.markForPosition
+import voice.core.data.repo.BookRepository
 import voice.core.logging.api.LogWriter
 import voice.core.logging.api.Logger
 import voice.core.playback.ChapterMarkChangeNotifier
@@ -112,13 +115,14 @@ class VoicePlayerTest {
   )
   private val bookId = BookId(UUID.randomUUID().toString())
   private lateinit var currentBook: Book
+  private val bookRepository = mockk<BookRepository> {
+    coEvery { get(bookId) } answers { currentBook }
+    coEvery { updateBook(any(), any()) } just Runs
+  }
   private val chapterMarkChangeNotifier = ChapterMarkChangeNotifier()
   private val player = VoicePlayer(
     player = internalPlayer,
-    repo = mockk {
-      coEvery { get(bookId) } answers { currentBook }
-      coEvery { updateBook(any(), any()) } just Runs
-    },
+    repo = bookRepository,
     currentBookStoreId = mockk {
       every { data } returns flowOf(bookId)
     },
@@ -137,6 +141,16 @@ class VoicePlayerTest {
     listeningEventRecorder = mockk(relaxed = true),
     chapterMarkChangeNotifier = chapterMarkChangeNotifier,
   )
+
+  @Test
+  fun `playback parameters persist speed`() = scope.runTest {
+    setMediaItems(listOf(chapter(ChapterMark(startMs = 0, endMs = 10_000, name = null))))
+
+    player.playbackParameters = PlaybackParameters(2F)
+    advanceUntilIdle()
+
+    coVerify { bookRepository.updateBook(bookId, match { it(currentBook.content).playbackSpeed == 2F }) }
+  }
 
   @Test
   fun `seekForward does not clip`() = scope.runTest {

@@ -1,6 +1,5 @@
 package voice.features.listeningStats
 
-import android.text.format.DateFormat
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -11,12 +10,16 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import voice.core.data.Book
 import voice.core.data.BookId
+import voice.core.data.ChapterId
 import voice.core.data.ListeningSession
+import voice.core.data.ListeningSessionEndReason
 import voice.core.data.repo.BookRepository
 import voice.core.data.repo.ListeningSessionRepo
-import voice.navigation.Destination
+import voice.core.ui.ImmutableFile
 import voice.navigation.Navigator
+import java.net.URLDecoder
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -39,26 +42,28 @@ class ListeningStatsViewModel(
       // Only stable library metadata is consumed from bookRepo, but its flow re-emits on every
       // position save (~1/second while playing). Deriving and de-duplicating it here keeps the
       // full-table aggregation below from re-running once a second with the screen open.
-      val librarySummary = bookRepo.flow()
+      val library = bookRepo.flow()
         .map { books ->
-          LibrarySummary(
-            size = books.size,
-            completed = books.count { it.isCompleted() },
-            names = books.associate { it.id to it.content.name },
-          )
+          books.map { book ->
+            val lastChapter = book.chapters.lastOrNull()
+            LibraryBookInfo(
+              id = book.id,
+              name = book.content.name,
+              cover = book.content.cover?.let(::ImmutableFile),
+              isCompleted = book.isCompleted(),
+              lastChapter = lastChapter?.id,
+              lastChapterDurationMs = lastChapter?.duration ?: 0L,
+            )
+          }
         }
         .distinctUntilChanged()
-      combine(sessionRepo.allSessions(), librarySummary) { sessions, library ->
-        val locale = Locale.getDefault()
+      combine(sessionRepo.allSessions(), library) { sessions, books ->
         computeStats(
           sessions = sessions,
-          librarySize = library.size,
-          booksCompleted = library.completed,
-          bookNames = library.names,
+          books = books,
           zone = ZoneId.systemDefault(),
           today = LocalDate.now(),
-          locale = locale,
-          dayLabel = dayLabelFormatter(locale)::format,
+          locale = Locale.getDefault(),
         )
       }
     }.collectAsState(initial = null)
@@ -68,36 +73,37 @@ class ListeningStatsViewModel(
   fun onClose() {
     navigator.goBack()
   }
-
-  fun onBookClick(bookId: BookId) {
-    navigator.goTo(Destination.Playback(bookId))
-  }
 }
 
-internal data class LibrarySummary(
-  val size: Int,
-  val completed: Int,
-  val names: Map<BookId, String>,
+data class LibraryBookInfo(
+  val id: BookId,
+  val name: String,
+  val cover: ImmutableFile?,
+  val isCompleted: Boolean,
+  val lastChapter: ChapterId? = null,
+  val lastChapterDurationMs: Long = 0L,
 )
-
-/** Day-and-month in the locale's own field order — "8/2" in the US, "2/8" in the UK. */
-private fun dayLabelFormatter(locale: Locale): DateTimeFormatter =
-  DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, "Md"), locale)
 
 internal fun computeStats(
   sessions: List<ListeningSession>,
-  librarySize: Int,
-  booksCompleted: Int,
-  bookNames: Map<BookId, String> = emptyMap(),
+  books: List<LibraryBookInfo>,
   zone: ZoneId,
   today: LocalDate,
   locale: Locale = Locale.getDefault(),
-  dayLabel: (LocalDate) -> String = { "${it.dayOfMonth}/${it.monthValue}" },
 ): ListeningStatsViewState {
+  val dateFormatter = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale)
+  val finishedBooks = finishedBooks(sessions, books, zone, dateFormatter)
+  // Count TITLES, not library rows: the same audiobook can exist under several identities
+  // (folder-level book alongside a file-level or parent-folder one), and the Finished shelf
+  // collapses those — the "N of M completed" card must agree with it.
+  val booksInLibrary = books.distinctBy { it.name }.size
+  val booksCompleted = finishedBooks.size
+
   if (sessions.isEmpty()) {
     return ListeningStatsViewState.Empty.copy(
       booksCompleted = booksCompleted,
-      booksInLibrary = librarySize,
+      booksInLibrary = booksInLibrary,
+      finishedBooks = finishedBooks,
     )
   }
 
@@ -122,31 +128,23 @@ internal fun computeStats(
     (((thisWeekMs - it) * 100.0) / it).roundToInt()
   }
 
-  // Average per day (over days since first session)
   val firstDay = dailyTotals.keys.min()
-  val daysSinceFirst = (today.toEpochDay() - firstDay.toEpochDay() + 1).coerceAtLeast(1)
-  val avgDailyMs = totalLifetimeMs / daysSinceFirst
-  val activeDaysLast30 = dailyTotals.keys.count { it in today.minusDays(29)..today }
   val avgSessionMs = totalLifetimeMs / sessions.size
-
-  val topBook = sessions
-    .filter { it.bookId in bookNames }
-    .groupBy { it.bookId }
-    .mapValues { (_, bookSessions) -> bookSessions.sumOf { it.durationMs } }
-    .maxByOrNull { it.value }
-    ?.let { (bookId, durationMs) ->
-      TopBookStats(
-        bookId = bookId,
-        name = bookNames.getValue(bookId),
-        durationMs = durationMs,
-      )
-    }
 
   // Longest day
   val longestEntry = dailyTotals.maxByOrNull { it.value }
   val longestDayMs = longestEntry?.value ?: 0L
-  val longestDayLabel = longestEntry?.key
-    ?.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale))
+  val longestDayLabel = longestEntry?.key?.format(dateFormatter)
+
+  val monthTotals = dailyTotals.entries
+    .groupBy({ YearMonth.from(it.key) }, { it.value })
+    .mapValues { (_, totals) -> totals.sum() }
+
+  // Biggest month, over the whole history — it's a lifetime record, not a chart bucket.
+  val biggestMonth = monthTotals.maxByOrNull { it.value }
+  val biggestMonthMs = biggestMonth?.value ?: 0L
+  val biggestMonthLabel = biggestMonth?.key
+    ?.format(DateTimeFormatter.ofPattern("MMMM yyyy", locale))
 
   val (currentStreak, longestStreak) = computeStreaks(dailyTotals.keys, today)
 
@@ -157,32 +155,12 @@ internal fun computeStats(
     ?.key
     ?.getDisplayName(TextStyle.FULL, locale)
 
-  // Daily chart — last 30 days
-  val dailyData = (29 downTo 0).map { daysBack ->
-    val date = today.minusDays(daysBack.toLong())
-    ChartDataPoint(label = dayLabel(date), valueMs = dailyTotals[date] ?: 0L)
-  }
-
-  // Weekly chart — last 12 weeks
-  val weeklyData = (11 downTo 0).map { weeksBack ->
-    val weekStartOfBucket = today.minusWeeks(weeksBack.toLong()).with(weekFields.dayOfWeek(), 1)
-    val weekEndOfBucket = weekStartOfBucket.plusDays(6)
-    ChartDataPoint(
-      label = "W${weekStartOfBucket.get(weekFields.weekOfWeekBasedYear())}",
-      valueMs = dailyTotals.entries
-        .filter { it.key >= weekStartOfBucket && it.key <= weekEndOfBucket }
-        .sumOf { it.value },
-    )
-  }
-
-  // Monthly chart — last 12 months
+  // Monthly chart — last 12 months. Narrow (single-letter) labels so all 12 fit on a phone.
   val monthlyData = (11 downTo 0).map { monthsBack ->
-    val targetDate = today.minusMonths(monthsBack.toLong())
+    val month = YearMonth.from(today.minusMonths(monthsBack.toLong()))
     ChartDataPoint(
-      label = targetDate.month.getDisplayName(TextStyle.SHORT, locale),
-      valueMs = dailyTotals.entries
-        .filter { it.key.month == targetDate.month && it.key.year == targetDate.year }
-        .sumOf { it.value },
+      label = month.month.getDisplayName(TextStyle.NARROW, locale),
+      valueMs = monthTotals[month] ?: 0L,
     )
   }
 
@@ -192,24 +170,129 @@ internal fun computeStats(
     thisWeekMs = thisWeekMs,
     thisMonthMs = thisMonthMs,
     weekChangePercent = weekChangePercent,
-    firstListeningDateLabel = firstDay.format(
-      DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale),
-    ),
+    firstListeningDateLabel = firstDay.format(dateFormatter),
     booksCompleted = booksCompleted,
-    booksInLibrary = librarySize,
-    dailyData = dailyData,
-    weeklyData = weeklyData,
+    booksInLibrary = booksInLibrary,
     monthlyData = monthlyData,
-    avgDailyMs = avgDailyMs,
-    activeDaysLast30 = activeDaysLast30,
     avgSessionMs = avgSessionMs,
-    topBook = topBook,
     longestDayMs = longestDayMs,
     longestDayLabel = longestDayLabel,
+    biggestMonthMs = biggestMonthMs,
+    biggestMonthLabel = biggestMonthLabel,
     currentStreak = currentStreak,
     longestStreak = longestStreak,
     bestDayOfWeek = bestDayOfWeek,
+    finishedBooks = finishedBooks,
   )
+}
+
+/**
+ * One shelf entry per finished TITLE, newest finish first. The same audiobook can exist under
+ * several library identities (a folder-level book alongside a file-level or parent-folder one, from
+ * grants added over time), so hours are summed across all same-named copies. There is no explicit
+ * "completed at" timestamp: the finish date is the last
+ * session that demonstrably REACHED the end of the book, so a later re-listen that stops mid-book
+ * cannot bump a March finish to August. For a book finished before session tracking existed both
+ * duration and date stay empty rather than showing zeros.
+ */
+private fun finishedBooks(
+  sessions: List<ListeningSession>,
+  books: List<LibraryBookInfo>,
+  zone: ZoneId,
+  dateFormatter: DateTimeFormatter,
+): List<FinishedBookStats> {
+  if (books.isEmpty()) return emptyList()
+  val attribution = BookAttribution(books)
+  val sessionsByBook = sessions.groupBy { attribution.attribute(it.bookId) }
+
+  return books
+    .groupBy { it.name }
+    .mapNotNull { (name, copies) ->
+      val copySessions = copies.map { it to sessionsByBook[it.id].orEmpty() }
+      val allSessions = copySessions.flatMap { it.second }
+      val nativeCopySessions = copySessions.map { (copy, s) -> copy to s.filter { it.bookId == copy.id } }
+      val explicitCompletions = nativeCopySessions.flatMap { (_, s) ->
+        s.filter { it.endReason == ListeningSessionEndReason.EndOfBook.id }
+      }
+      val legacyCompletions = nativeCopySessions.flatMap { (copy, s) -> legacyCompletionSessions(copy, s) }
+      val completions = explicitCompletions + legacyCompletions
+      val completedAt = completions.maxOfOrNull { it.endedAt }
+      // Current position can move away from the end when a relisten begins, so completion evidence
+      // also keeps the title on this historical shelf.
+      if (copies.none { it.isCompleted } && completions.isEmpty()) return@mapNotNull null
+      val finishedOn = completedAt?.atZone(zone)?.toLocalDate()
+      FinishedBookStats(
+        name = name,
+        cover = copies.firstNotNullOfOrNull { it.cover },
+        listenedMs = allSessions.sumOf { it.durationMs },
+        sessionCount = allSessions.size,
+        // A legacy near-end record can establish that a finish happened, but not an exact count.
+        completionCount = explicitCompletions.size.takeIf { it > 0 && legacyCompletions.isEmpty() },
+        firstListenedDateLabel = allSessions.minOfOrNull { it.startedAt }
+          ?.atZone(zone)
+          ?.toLocalDate()
+          ?.format(dateFormatter),
+        finishedDate = finishedOn,
+        finishedDateLabel = finishedOn?.format(dateFormatter),
+      )
+    }
+    // compareByDescending flips the comparator, so nullsFirst ends up putting undated books last.
+    .sortedWith(compareByDescending(nullsFirst()) { it.finishedDate })
+}
+
+/** Pre-end-reason sessions that demonstrably reached the final chapter's end. */
+private fun legacyCompletionSessions(
+  book: LibraryBookInfo,
+  bookSessions: List<ListeningSession>,
+): List<ListeningSession> {
+  if (book.lastChapter == null || book.lastChapterDurationMs <= 0) return emptyList()
+  // Chapter identity is compared by document path only when the raw ids differ: the same file
+  // appears under different URI shapes (tree-grant vs plain document) depending on which folder
+  // grant recorded the session.
+  val lastChapterPath by lazy { book.lastChapter.value.contentDocumentPath() }
+  // "-60s" alone goes vacuous on a short outro chapter (any 3-second touch would count as
+  // finishing); never accept less than half the chapter.
+  val threshold = (book.lastChapterDurationMs - 60_000).coerceAtLeast(book.lastChapterDurationMs / 2)
+  return bookSessions
+    .filter { session ->
+      if (session.endReason != null) return@filter false
+      val endChapter = session.endChapterId ?: session.chapterId
+      session.endPositionMs >= threshold &&
+        (endChapter == book.lastChapter || endChapter.value.contentDocumentPath() == lastChapterPath)
+    }
+}
+
+/**
+ * Sessions recorded against a book identity that no longer exists (the scanner has re-keyed a file
+ * into a folder book, or an old file-level grant died) are re-attributed by SAF document path: a
+ * session whose document path equals or lies inside a library book's document path belongs to that
+ * book. Deepest (most specific) book wins, so a nested book beats its parent-folder book. Decoded
+ * paths and verdicts are cached — attribution runs once per distinct session book id, not per
+ * session row.
+ */
+private class BookAttribution(private val books: List<LibraryBookInfo>) {
+  private val liveIds = books.mapTo(hashSetOf()) { it.id }
+  private val pathById = books.mapNotNull { book ->
+    book.id.value.contentDocumentPath()?.let { book.id to it }
+  }
+  private val cache = HashMap<BookId, BookId>()
+
+  fun attribute(sessionBookId: BookId): BookId = cache.getOrPut(sessionBookId) {
+    if (sessionBookId in liveIds) return@getOrPut sessionBookId
+    val sessionPath = sessionBookId.value.contentDocumentPath() ?: return@getOrPut sessionBookId
+    pathById
+      .filter { (_, path) -> sessionPath == path || sessionPath.startsWith("$path/") }
+      .maxByOrNull { (_, path) -> path.length }
+      ?.first
+      ?: sessionBookId
+  }
+}
+
+/** The decoded SAF document path of a content URI, e.g. "primary:Download/audiobooks/Book". */
+private fun String.contentDocumentPath(): String? {
+  val encoded = substringAfter("/document/", "").substringBefore('?').takeIf { it.isNotEmpty() } ?: return null
+  // URLDecoder decodes a literal '+' as a space; document ids keep '+' literal, so protect it.
+  return runCatching { URLDecoder.decode(encoded.replace("+", "%2B"), "UTF-8") }.getOrNull()
 }
 
 /**
@@ -293,10 +376,15 @@ data class ChartDataPoint(
   val valueMs: Long,
 )
 
-data class TopBookStats(
-  val bookId: BookId,
+data class FinishedBookStats(
   val name: String,
-  val durationMs: Long,
+  val cover: ImmutableFile?,
+  val listenedMs: Long,
+  val sessionCount: Int,
+  val completionCount: Int?,
+  val firstListenedDateLabel: String?,
+  val finishedDate: LocalDate?,
+  val finishedDateLabel: String?,
 )
 
 data class ListeningStatsViewState(
@@ -308,18 +396,16 @@ data class ListeningStatsViewState(
   val firstListeningDateLabel: String?,
   val booksCompleted: Int,
   val booksInLibrary: Int,
-  val dailyData: List<ChartDataPoint>,
-  val weeklyData: List<ChartDataPoint>,
   val monthlyData: List<ChartDataPoint>,
-  val avgDailyMs: Long,
-  val activeDaysLast30: Int,
   val avgSessionMs: Long,
-  val topBook: TopBookStats?,
   val longestDayMs: Long,
   val longestDayLabel: String?,
+  val biggestMonthMs: Long,
+  val biggestMonthLabel: String?,
   val currentStreak: Int,
   val longestStreak: Int,
   val bestDayOfWeek: String?,
+  val finishedBooks: List<FinishedBookStats>,
 ) {
   companion object {
     val Empty = ListeningStatsViewState(
@@ -331,18 +417,16 @@ data class ListeningStatsViewState(
       firstListeningDateLabel = null,
       booksCompleted = 0,
       booksInLibrary = 0,
-      dailyData = emptyList(),
-      weeklyData = emptyList(),
       monthlyData = emptyList(),
-      avgDailyMs = 0L,
-      activeDaysLast30 = 0,
       avgSessionMs = 0L,
-      topBook = null,
       longestDayMs = 0L,
       longestDayLabel = null,
+      biggestMonthMs = 0L,
+      biggestMonthLabel = null,
       currentStreak = 0,
       longestStreak = 0,
       bestDayOfWeek = null,
+      finishedBooks = emptyList(),
     )
   }
 }
