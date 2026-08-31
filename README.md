@@ -15,23 +15,31 @@ This started as a personal learning project by someone who had no idea what they
 
 Honestly? You probably shouldn't. Voice is polished, actively maintained, and built by someone who knows what they're doing. Download that first.
 
-But you can try both. If the features below add value to your listining experience then great. If not then no worries.
+But you can try both. If the features below add value to your listening experience then great. If not then no worries.
+
+---
+
+## What's new in v1.26
+
+- Redesigned Listening Statistics with clearer records, finished-book details, and relisten counts
+- Playback speed changes are now remembered — thanks [@tomwhat](https://github.com/tomwhat)
+- More reliable Android restore of listening history and cover art
 
 ---
 
 ## What's different from Voice
 
-- **[new]** Lock-screen slider modes — seek the chapter, the whole book, or disable the slider
-- **[new]** Encrypted Android system backup — progress, history and settings survive reinstall
-- Backup and restore to a folder you choose, with automatic daily saves and manual save points
-- Editable chapter names with ability to fix out of sync chapter numbering
-- Listening log and statistics
-- Character lists per book
+- Listening Log with clear chapter positions and timestamps
+- Listening Statistics with trends, records, finished books, and relisten counts
+- Character lists for each book
+- Smarter sleep timer with interaction reset and chapter countdowns
+- Customizable lock-screen progress, secondary text, and playback controls
+- Flexible backup and restore — encrypted Android system backup plus automatic and manual saves to a folder you choose
+- Editable chapter names and tools to fix out-of-sync numbering
+- Hide and restore books from the library
 - Resizable widget with configurable opacity and text scale
 - Customizable media button actions (double/triple press)
-- Sleep timer auto-reset on interaction, N-chapter countdown
-- Hide/restore books from library
-- Firebase removed entirely — zero outbound network calls
+- Firebase removed entirely — no analytics or background telemetry
 
 ---
 

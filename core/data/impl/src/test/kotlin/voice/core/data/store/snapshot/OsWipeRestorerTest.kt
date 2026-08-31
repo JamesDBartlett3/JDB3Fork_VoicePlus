@@ -304,6 +304,152 @@ class OsWipeRestorerTest {
   }
 
   @Test
+  fun `an unmatched book's sessions are kept under the old id so lifetime stats survive`() = runTest {
+    // The book's folder is gone (deleted from disk / never re-granted), but its 100h of history is
+    // still the user's history — the stats screen sums ALL sessions, present book or not.
+    val (ghost, ghostChapters) = snapshotBookOf("primary:Books/Ghost", listOf("a.mp3"), "a.mp3", position = 10, lastPlayed = 5_000)
+    val session = ListeningSessionDto(
+      id = 1, bookId = oldUri("primary:Books/Ghost"), chapterId = oldUri("primary:Books/Ghost/a.mp3"),
+      startedAtEpochMillis = 100, endedAtEpochMillis = 200, durationMs = 100,
+      startPositionMs = 0, endPositionMs = 100, endChapterId = null,
+    )
+    onScan = {} // the book never comes back
+
+    restorer().run(snapshotOf(listOf(ghost), ghostChapters, sessions = listOf(session)))
+
+    val kept = db.listeningSessionDao().all().single()
+    kept.bookId shouldBe BookId(oldUri("primary:Books/Ghost"))
+    kept.durationMs shouldBe 100L
+  }
+
+  @Test
+  fun `a retry that matches the book migrates its old-id sessions without double-counting`() = runTest {
+    val (dune, duneChapters) = snapshotBookOf("primary:Books/Dune", listOf("01.mp3"), "01.mp3", position = 400, lastPlayed = 5_000)
+    val session = ListeningSessionDto(
+      id = 1, bookId = oldUri("primary:Books/Dune"), chapterId = oldUri("primary:Books/Dune/01.mp3"),
+      startedAtEpochMillis = 100, endedAtEpochMillis = 200, durationMs = 100,
+      startPositionMs = 0, endPositionMs = 100, endChapterId = null,
+    )
+    val snapshot = snapshotOf(listOf(dune), duneChapters, sessions = listOf(session))
+
+    onScan = {} // first run: not re-granted yet -> session kept under the old id
+    restorer().run(snapshot)
+    db.listeningSessionDao().all().single().bookId shouldBe BookId(oldUri("primary:Books/Dune"))
+
+    onScan = { scanInBook("primary:Books/Dune", listOf("01.mp3")) } // re-grant done -> retry matches
+    restorer().run(snapshot)
+
+    val migrated = db.listeningSessionDao().all().single()
+    migrated.bookId shouldBe BookId(newUri("primary:Books/Dune"))
+    migrated.durationMs shouldBe 100L
+    // The raw old-id row was replaced by the properly re-keyed copy, so the chapter id is live —
+    // the Listening Log can resolve it instead of rendering "Unknown chapter".
+    migrated.chapterId shouldBe ChapterId(newUri("primary:Books/Dune/01.mp3"))
+  }
+
+  @Test
+  fun `restoring a book whose URI did not change keeps organic sessions recorded since the wipe`() = runTest {
+    // Re-granting the same folder yields identical SAF ids, so source and target id coincide.
+    // The stale-row cleanup must not treat the live id as an old id and delete real listening.
+    val relPath = "primary:Books/Dune"
+    val chapterUri = newUri("$relPath/01.mp3")
+    val dune = bookRow(newUri(relPath), listOf(chapterUri), position = 400, lastPlayed = 5_000).toDto()
+    val duneChapters = listOf(
+      chapterRow(chapterUri).toDto(relName = DeviceRelativePath.relName(chapterUri.toUri(), relPath)),
+    )
+    val organic = ListeningSession(
+      bookId = BookId(newUri(relPath)),
+      chapterId = ChapterId(chapterUri),
+      startedAt = Instant.ofEpochMilli(9_000),
+      endedAt = Instant.ofEpochMilli(9_500),
+      startPositionMs = 0,
+      endPositionMs = 500,
+      durationMs = 500,
+    )
+    onScan = {
+      scanInBook(relPath, listOf("01.mp3"))
+      db.listeningSessionDao().insert(organic)
+    }
+
+    restorer().run(snapshotOf(listOf(dune), duneChapters))
+
+    db.listeningSessionDao().all().single().durationMs shouldBe 500L
+  }
+
+  @Test
+  fun `organic sessions under a re-keyed book's old id survive the restore's stale-row cleanup`() = runTest {
+    // The old id was itself live for a while (same-folder re-grant) and collected real listening the
+    // snapshot has never seen; a later re-grant changed the id. The cleanup may only remove rows the
+    // snapshot re-supplies — never the organic ones.
+    val (dune, duneChapters) = snapshotBookOf("primary:Books/Dune", listOf("01.mp3"), "01.mp3", position = 400, lastPlayed = 5_000)
+    val snapshotSession = ListeningSessionDto(
+      id = 1, bookId = oldUri("primary:Books/Dune"), chapterId = oldUri("primary:Books/Dune/01.mp3"),
+      startedAtEpochMillis = 123, endedAtEpochMillis = 456, durationMs = 333,
+      startPositionMs = 100, endPositionMs = 200, endChapterId = null,
+    )
+    val organic = ListeningSession(
+      bookId = BookId(oldUri("primary:Books/Dune")),
+      chapterId = ChapterId(oldUri("primary:Books/Dune/01.mp3")),
+      // Same book and start instant as the snapshot row, but a different natural-key position.
+      startedAt = Instant.ofEpochMilli(123),
+      endedAt = Instant.ofEpochMilli(623),
+      startPositionMs = 900,
+      endPositionMs = 1_400,
+      durationMs = 500,
+    )
+    onScan = {
+      scanInBook("primary:Books/Dune", listOf("01.mp3"))
+      db.listeningSessionDao().insert(organic)
+    }
+
+    restorer().run(snapshotOf(listOf(dune), duneChapters, sessions = listOf(snapshotSession)))
+
+    val sessions = db.listeningSessionDao().all()
+    sessions.single { it.durationMs == 333L }.bookId shouldBe BookId(newUri("primary:Books/Dune"))
+    // The organic session was not in the snapshot -> untouched, still under the old id.
+    sessions.single { it.durationMs == 500L }.bookId shouldBe BookId(oldUri("primary:Books/Dune"))
+  }
+
+  @Test
+  fun `a matched book's session whose chapter cannot be re-keyed is preserved under the old id`() = runTest {
+    // The session references a chapter file that was replaced before the backup was taken, so the
+    // re-keyer cannot map it — but the hours are still the user's history and must survive.
+    val (dune, duneChapters) = snapshotBookOf("primary:Books/Dune", listOf("01.mp3"), "01.mp3", position = 400, lastPlayed = 5_000)
+    val good = ListeningSessionDto(
+      id = 1, bookId = oldUri("primary:Books/Dune"), chapterId = oldUri("primary:Books/Dune/01.mp3"),
+      startedAtEpochMillis = 100, endedAtEpochMillis = 200, durationMs = 100,
+      startPositionMs = 0, endPositionMs = 100, endChapterId = null,
+    )
+    val staleChapter = ListeningSessionDto(
+      id = 2, bookId = oldUri("primary:Books/Dune"), chapterId = oldUri("primary:Books/Dune/replaced.mp3"),
+      startedAtEpochMillis = 100, endedAtEpochMillis = 500, durationMs = 400,
+      startPositionMs = 50, endPositionMs = 450, endChapterId = null,
+    )
+    onScan = { scanInBook("primary:Books/Dune", listOf("01.mp3")) }
+
+    restorer().run(snapshotOf(listOf(dune), duneChapters, sessions = listOf(good, staleChapter)))
+
+    val sessions = db.listeningSessionDao().all()
+    sessions.single { it.durationMs == 100L }.bookId shouldBe BookId(newUri("primary:Books/Dune"))
+    sessions.single { it.durationMs == 400L }.bookId shouldBe BookId(oldUri("primary:Books/Dune"))
+  }
+
+  @Test
+  fun `the restore keeps the cover the scan just extracted instead of clobbering it`() = runTest {
+    val (dune, duneChapters) = snapshotBookOf("primary:Books/Dune", listOf("01.mp3"), "01.mp3", position = 400, lastPlayed = 5_000)
+    val scannedCover = java.io.File("/data/fresh-install/bookCovers/dune.png")
+    onScan = {
+      scanInBook("primary:Books/Dune", listOf("01.mp3"))
+      val scanned = db.bookContentDao().all().single()
+      contentRepo.put(scanned.copy(cover = scannedCover))
+    }
+
+    restorer().run(snapshotOf(listOf(dune), duneChapters))
+
+    db.bookContentDao().all().single().cover shouldBe scannedCover
+  }
+
+  @Test
   fun `end reasons survive the re-key`() = runTest {
     val (dune, duneChapters) = snapshotBookOf("primary:Books/Dune", listOf("01.mp3"), "01.mp3", position = 400, lastPlayed = 5_000)
     val session = ListeningSessionDto(

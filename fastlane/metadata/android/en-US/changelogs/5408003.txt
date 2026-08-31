@@ -1,0 +1,3 @@
+- Redesigned Listening Stats with clearer records, recent totals, finished books, and relisten counts.
+- Fixed playback speed changes not being remembered. Thanks @tomwhat.
+- Improved Android backup restore for listening history and cover art.
