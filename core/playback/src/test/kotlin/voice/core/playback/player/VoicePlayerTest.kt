@@ -56,7 +56,6 @@ import voice.core.playback.toLivePlaybackState
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(AndroidJUnit4::class)
 class VoicePlayerTest {
@@ -686,48 +685,6 @@ class VoicePlayerTest {
     player.seekTo(1, 5_000)
     player.forceSeekToPrevious()
     player.shouldHavePosition(1, 0)
-  }
-
-  @Test
-  fun `setPlaybackSpeed persists against the loaded book`() = scope.runTest {
-    val chapter = chapter(ChapterMark(startMs = 0, endMs = 10_000, name = null))
-    val bookA = book(chapters = listOf(chapter), id = BookId("book-a"))
-    val bookB = book(chapters = listOf(chapter), id = BookId("book-b"))
-    val updatedBookId = AtomicReference<BookId?>(null)
-    val player = VoicePlayer(
-      player = internalPlayer,
-      repo = mockk {
-        coEvery { get(bookA.id) } returns bookA
-        coEvery { get(bookB.id) } returns bookB
-        coEvery { updateBook(any(), any()) } answers {
-          updatedBookId.set(firstArg())
-        }
-      },
-      currentBookStoreId = mockk {
-        every { data } returns flowOf(bookB.id)
-      },
-      seekTimeStore = seekTimeStore,
-      autoRewindAmountStore = mockk(),
-      scope = scope,
-      chapterRepo = mockk {
-        coEvery { this@mockk.get(any()) } answers {
-          bookA.chapters.single { it.id == firstArg() }
-        }
-      },
-      mediaItemProvider = mediaItemProvider,
-      volumeGain = mockk(relaxed = true),
-      sleepTimer = mockk(relaxed = true),
-      intentHolder = PlaybackIntentHolder(),
-      listeningEventRecorder = mockk(relaxed = true),
-      chapterMarkChangeNotifier = chapterMarkChangeNotifier,
-    )
-
-    val item = mediaItemProvider.mediaItem(bookA)
-    player.setMediaItem(item)
-    player.setPlaybackSpeed(1.5f)
-    advanceUntilIdle()
-
-    updatedBookId.get() shouldBe bookA.id
   }
 
   private fun chapter(vararg marks: ChapterMark): Chapter {

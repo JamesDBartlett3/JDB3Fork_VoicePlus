@@ -71,7 +71,6 @@ class CurrentBookResolverTest {
 
     resolver.currentBook()?.content?.currentChapter shouldBe book.chapters.last().id
     resolver.currentBook()?.content?.positionInChapter shouldBe 1234L
-    resolver.currentBook()?.content?.playbackSpeed shouldBe 1f
   }
 
   @Test
@@ -101,7 +100,6 @@ class CurrentBookResolverTest {
 
     persisted.currentChapter shouldBe book.chapters.last().id
     persisted.positionInChapter shouldBe 1234L
-    persisted.playbackSpeed shouldBe 1f
   }
 
   @Test

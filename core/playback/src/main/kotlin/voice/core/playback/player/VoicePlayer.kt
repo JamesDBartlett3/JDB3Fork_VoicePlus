@@ -452,7 +452,7 @@ class VoicePlayer(
   }
 
   private suspend fun updateBook(update: (BookContent) -> BookContent) {
-    val bookId = currentBook?.id ?: currentBookStoreId.data.first() ?: return
+    val bookId = currentBookStoreId.data.first() ?: return
     repo.updateBook(bookId, update)
   }
 }
